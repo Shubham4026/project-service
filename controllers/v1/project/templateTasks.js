@@ -604,8 +604,6 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 					})
 				}
 
-				let deletedTasks = []
-
 				// Helper function to check if all children are not started
 				const areAllChildrenNotStarted = (children) => {
 					if (!children || !Array.isArray(children)) return true
@@ -628,103 +626,78 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 					return null
 				}
 
+				// Check if task can be deleted in all projects before proceeding
 				for (const project of projects) {
-					const projectId = project._id
 					const projectTasks = project.tasks || []
-					const projectTemplateId = project.projectTemplateId
-
-					// First check in main tasks array
 					const mainTask = projectTasks.find((task) => task.externalId === externalId)
 
 					if (mainTask) {
-						// If found in main tasks, check all its children
-						if (areAllChildrenNotStarted(mainTask.children)) {
-							// All children are not started, proceed with deletion
-
-							// Delete from projectTemplateTasks
-							const templateTasks = await database.models.projectTemplateTasks
-								.find({
-									externalId: externalId,
-									projectTemplateId: projectTemplateId,
-								})
-								.lean()
-
-							if (templateTasks && templateTasks.length > 0) {
-								await database.models.projectTemplateTasks.deleteOne({ _id: templateTasks[0]._id })
-							}
-
-							// Remove from project tasks
-							const updatedTasks = projectTasks.filter((task) => task.externalId !== externalId)
-							await projectQueries.findOneAndUpdate(
-								{ _id: projectId },
-								{ $set: { tasks: updatedTasks, updatedAt: new Date() } }
-							)
-
-							deletedTasks.push({
-								projectId: projectId,
-								externalId: externalId,
-								templateTaskId: templateTasks && templateTasks.length > 0 ? templateTasks[0]._id : null,
-							})
-						} else {
+						if (!areAllChildrenNotStarted(mainTask.children)) {
 							return resolve({
 								status: HTTP_STATUS_CODE.bad_request.status,
 								message: `Cannot delete task ${externalId} as it has started children`,
 							})
 						}
 					} else {
-						// Not found in main tasks, search in children
 						const childTask = findTaskByExternalId(projectTasks, externalId)
-
-						if (childTask) {
-							// Found in children, check its status
-							if (!childTask.status || childTask.status === 'notStarted') {
-								// Delete from projectTemplateTasks
-								const templateTasks = await database.models.projectTemplateTasks
-									.find({
-										externalId: externalId,
-										projectTemplateId: projectTemplateId,
-									})
-									.lean()
-
-								if (templateTasks && templateTasks.length > 0) {
-									await database.models.projectTemplateTasks.deleteOne({ _id: templateTasks[0]._id })
-								}
-
-								// Remove from project tasks
-								const removed = removeTaskFromTree(projectTasks, externalId)
-								if (removed) {
-									await projectQueries.findOneAndUpdate(
-										{ _id: projectId },
-										{ $set: { tasks: projectTasks, updatedAt: new Date() } }
-									)
-
-									deletedTasks.push({
-										projectId: projectId,
-										externalId: externalId,
-										templateTaskId:
-											templateTasks && templateTasks.length > 0 ? templateTasks[0]._id : null,
-									})
-
-									// Skip to next project since we've successfully deleted the task
-									continue
-								}
-							} else {
-								// Only return error if we haven't successfully deleted the task yet
-								if (!deletedTasks.some((task) => task.externalId === externalId)) {
-									return resolve({
-										status: HTTP_STATUS_CODE.bad_request.status,
-										message: `Cannot delete task ${externalId} as it has already started`,
-									})
-								}
-							}
+						if (childTask && childTask.status && childTask.status !== 'notStarted') {
+							return resolve({
+								status: HTTP_STATUS_CODE.bad_request.status,
+								message: `Cannot delete task ${externalId} as it has already started`,
+							})
 						}
 					}
+				}
+
+				// If we reach here, we can safely delete the task from all projects
+				const deletedTasks = []
+
+				for (const project of projects) {
+					const projectId = project._id
+					const projectTasks = project.tasks || []
+					const projectTemplateId = project.projectTemplateId
+
+					// Delete from projectTemplateTasks
+					const templateTasks = await database.models.projectTemplateTasks
+						.find({
+							externalId: externalId,
+							projectTemplateId: projectTemplateId,
+						})
+						.lean()
+
+					if (templateTasks && templateTasks.length > 0) {
+						await database.models.projectTemplateTasks.deleteOne({ _id: templateTasks[0]._id })
+					}
+
+					// Remove from project tasks
+					const mainTask = projectTasks.find((task) => task.externalId === externalId)
+					if (mainTask) {
+						const updatedTasks = projectTasks.filter((task) => task.externalId !== externalId)
+						await projectQueries.findOneAndUpdate(
+							{ _id: projectId },
+							{ $set: { tasks: updatedTasks, updatedAt: new Date() } }
+						)
+					} else {
+						const removed = removeTaskFromTree(projectTasks, externalId)
+						if (removed) {
+							await projectQueries.findOneAndUpdate(
+								{ _id: projectId },
+								{ $set: { tasks: projectTasks, updatedAt: new Date() } }
+							)
+						}
+					}
+
+					deletedTasks.push({
+						projectId: projectId,
+						externalId: externalId,
+						templateTaskId: templateTasks && templateTasks.length > 0 ? templateTasks[0]._id : null,
+					})
 				}
 
 				if (!deletedTasks.length) {
 					return resolve({
 						status: HTTP_STATUS_CODE.bad_request.status,
-						message: 'No tasks deleted. Either tasks were already started or not found.',
+						message: 'No tasks deleted. Tasks were not found.',
 					})
 				}
 
