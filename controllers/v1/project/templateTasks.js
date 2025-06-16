@@ -415,45 +415,7 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 					})
 				}
 
-				// 2. Check if any task is started in any project
-				const isTaskStartedInAnyProject = (projects, taskExternalIds) => {
-					for (const project of projects) {
-						const findStartedTask = (tasks) => {
-							if (!tasks || !Array.isArray(tasks)) return false
-							for (const task of tasks) {
-								if (taskExternalIds.includes(task.externalId)) {
-									if (task.status && task.status !== 'notStarted') {
-										return true
-									}
-								}
-								if (task.children && Array.isArray(task.children)) {
-									if (findStartedTask(task.children)) return true
-								}
-							}
-							return false
-						}
-						if (findStartedTask(project.tasks)) {
-							return true
-						}
-					}
-					return false
-				}
-
-				const taskExternalIds = (updateData.tasks || []).map((task) => task.externalId)
-				if (taskExternalIds.length && isTaskStartedInAnyProject(projects, taskExternalIds)) {
-					return resolve({
-						status: HTTP_STATUS_CODE.bad_request.status,
-						message: `Cannot update tasks as one or more tasks have already started in projects`,
-					})
-				}
-				if (!taskExternalIds.length && externalId && isTaskStartedInAnyProject(projects, [externalId])) {
-					return resolve({
-						status: HTTP_STATUS_CODE.bad_request.status,
-						message: `Cannot update task ${externalId} as it has already started in one or more projects`,
-					})
-				}
-
-				// 3. Process each project
+				// 2. Process each project (removed status check)
 				const updatedProjects = []
 				for (const project of projects) {
 					const projectId = project._id
@@ -504,7 +466,7 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 				if (!updatedProjects.length) {
 					return resolve({
 						status: HTTP_STATUS_CODE.bad_request.status,
-						message: 'No tasks were updated. Either tasks were not found or already started.',
+						message: 'No tasks were updated. Either tasks were not found.',
 					})
 				}
 
