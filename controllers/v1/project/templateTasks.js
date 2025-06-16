@@ -72,18 +72,22 @@ function updateTaskInTree(tasks, targetExternalId, updateData) {
 
 // Helper function to recursively remove a task by externalId from a nested tasks array
 function removeTaskFromTree(tasks, targetExternalId) {
+	if (!tasks || !Array.isArray(tasks)) return false
+
 	for (let i = 0; i < tasks.length; i++) {
+		// Check current task
 		if (tasks[i].externalId === targetExternalId) {
 			tasks.splice(i, 1)
-			return true // removed
+			return true
 		}
-		if (Array.isArray(tasks[i].children) && tasks[i].children.length > 0) {
+		// Check children
+		if (tasks[i].children && Array.isArray(tasks[i].children)) {
 			if (removeTaskFromTree(tasks[i].children, targetExternalId)) {
-				return true // removed from children
+				return true
 			}
 		}
 	}
-	return false // not found
+	return false
 }
 
 module.exports = class ProjectTemplateTasks extends Abstract {
@@ -545,50 +549,155 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 					})
 				}
 
+				// Helper function to check if any task with given externalId is started
+				const isTaskStartedInAnyProject = (projects, targetExternalId) => {
+					for (const project of projects) {
+						const findStartedTask = (tasks) => {
+							if (!tasks || !Array.isArray(tasks)) return false
+
+							for (const task of tasks) {
+								if (task.externalId === targetExternalId) {
+									if (task.status && task.status !== 'notStarted') {
+										return true
+									}
+								}
+								if (task.children && Array.isArray(task.children)) {
+									if (findStartedTask(task.children)) return true
+								}
+							}
+							return false
+						}
+
+						if (findStartedTask(project.tasks)) {
+							return true
+						}
+					}
+					return false
+				}
+
+				// First check if task is started in any project
+				if (isTaskStartedInAnyProject(projects, externalId)) {
+					return resolve({
+						status: HTTP_STATUS_CODE.bad_request.status,
+						message: `Cannot delete task ${externalId} as it has already started in one or more projects`,
+					})
+				}
+
 				let deletedTasks = []
+
+				// Helper function to check if all children are not started
+				const areAllChildrenNotStarted = (children) => {
+					if (!children || !Array.isArray(children)) return true
+					return children.every((child) => !child.status || child.status === 'notStarted')
+				}
+
+				// Helper function to find task by externalId
+				const findTaskByExternalId = (tasks, targetId) => {
+					if (!tasks || !Array.isArray(tasks)) return null
+
+					for (const task of tasks) {
+						if (task.externalId === targetId) {
+							return task
+						}
+						if (task.children && Array.isArray(task.children)) {
+							const foundInChildren = findTaskByExternalId(task.children, targetId)
+							if (foundInChildren) return foundInChildren
+						}
+					}
+					return null
+				}
+
 				for (const project of projects) {
 					const projectId = project._id
-					const hasStartedTasks =
-						project.tasks &&
-						project.tasks.some((task) => task.status && task.status !== CONSTANTS.common.NOT_STARTED_STATUS)
-
-					if (hasStartedTasks) {
-						continue // Skip this project if any task has started
-					}
-
+					const projectTasks = project.tasks || []
 					const projectTemplateId = project.projectTemplateId
 
-					// Fetch the template task by externalId and projectTemplateId
-					const templateTasks = await projectTemplateTasksHelper.getTasksByExternalIdAndTemplateId(
-						externalId,
-						projectTemplateId
-					)
-					if (!templateTasks || !templateTasks.length) {
-						continue // Skip if template task not found
+					// First check in main tasks array
+					const mainTask = projectTasks.find((task) => task.externalId === externalId)
+
+					if (mainTask) {
+						// If found in main tasks, check all its children
+						if (areAllChildrenNotStarted(mainTask.children)) {
+							// All children are not started, proceed with deletion
+
+							// Delete from projectTemplateTasks
+							const templateTasks = await database.models.projectTemplateTasks
+								.find({
+									externalId: externalId,
+									projectTemplateId: projectTemplateId,
+								})
+								.lean()
+
+							if (templateTasks && templateTasks.length > 0) {
+								await database.models.projectTemplateTasks.deleteOne({ _id: templateTasks[0]._id })
+							}
+
+							// Remove from project tasks
+							const updatedTasks = projectTasks.filter((task) => task.externalId !== externalId)
+							await projectQueries.findOneAndUpdate(
+								{ _id: projectId },
+								{ $set: { tasks: updatedTasks, updatedAt: new Date() } }
+							)
+
+							deletedTasks.push({
+								projectId: projectId,
+								externalId: externalId,
+								templateTaskId: templateTasks && templateTasks.length > 0 ? templateTasks[0]._id : null,
+							})
+						} else {
+							return resolve({
+								status: HTTP_STATUS_CODE.bad_request.status,
+								message: `Cannot delete task ${externalId} as it has started children`,
+							})
+						}
+					} else {
+						// Not found in main tasks, search in children
+						const childTask = findTaskByExternalId(projectTasks, externalId)
+
+						if (childTask) {
+							// Found in children, check its status
+							if (!childTask.status || childTask.status === 'notStarted') {
+								// Delete from projectTemplateTasks
+								const templateTasks = await database.models.projectTemplateTasks
+									.find({
+										externalId: externalId,
+										projectTemplateId: projectTemplateId,
+									})
+									.lean()
+
+								if (templateTasks && templateTasks.length > 0) {
+									await database.models.projectTemplateTasks.deleteOne({ _id: templateTasks[0]._id })
+								}
+
+								// Remove from project tasks
+								const removed = removeTaskFromTree(projectTasks, externalId)
+								if (removed) {
+									await projectQueries.findOneAndUpdate(
+										{ _id: projectId },
+										{ $set: { tasks: projectTasks, updatedAt: new Date() } }
+									)
+
+									deletedTasks.push({
+										projectId: projectId,
+										externalId: externalId,
+										templateTaskId:
+											templateTasks && templateTasks.length > 0 ? templateTasks[0]._id : null,
+									})
+
+									// Skip to next project since we've successfully deleted the task
+									continue
+								}
+							} else {
+								// Only return error if we haven't successfully deleted the task yet
+								if (!deletedTasks.some((task) => task.externalId === externalId)) {
+									return resolve({
+										status: HTTP_STATUS_CODE.bad_request.status,
+										message: `Cannot delete task ${externalId} as it has already started`,
+									})
+								}
+							}
+						}
 					}
-
-					const templateTask = templateTasks[0]
-
-					// Delete the template task
-					await database.models.projectTemplateTasks.deleteOne({ _id: templateTask._id })
-
-					// Remove the task from project document using externalId
-					const projectTasks = project.tasks || []
-					const removed = removeTaskFromTree(projectTasks, externalId)
-					if (!removed) {
-						continue // Skip if task not found in project
-					}
-
-					await projectQueries.findOneAndUpdate(
-						{ _id: projectId },
-						{ $set: { tasks: projectTasks, updatedAt: new Date() } }
-					)
-
-					deletedTasks.push({
-						templateTaskId: templateTask._id,
-						projectId: projectId,
-						externalId: externalId,
-					})
 				}
 
 				if (!deletedTasks.length) {
@@ -664,12 +773,25 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 				for (const project of projects) {
 					const hasStartedTasks =
 						project.tasks &&
-						project.tasks.some((task) => task.status && task.status !== CONSTANTS.common.NOT_STARTED_STATUS)
+						project.tasks.some((task) => {
+							// Check main task status
+							if (task.status && task.status !== CONSTANTS.common.NOT_STARTED_STATUS) {
+								return true
+							}
+							// Check children tasks status
+							if (task.children && Array.isArray(task.children)) {
+								return task.children.some(
+									(childTask) =>
+										childTask.status && childTask.status !== CONSTANTS.common.NOT_STARTED_STATUS
+								)
+							}
+							return false
+						})
 
 					if (hasStartedTasks) {
 						return resolve({
 							status: HTTP_STATUS_CODE.bad_request.status,
-							message: `Cannot delete project ${project._id} as it has started tasks`,
+							message: `Cannot delete project ${project._id} as it has started tasks or subtasks`,
 						})
 					}
 				}
