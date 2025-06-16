@@ -58,6 +58,28 @@ function removeTaskFromTree(tasks, targetExternalId) {
 	return false
 }
 
+// Helper function to upsert a task (and its children) into a tasks array by externalId
+function upsertTaskInTree(tasks, newTask) {
+	const idx = tasks.findIndex((t) => t.externalId === newTask.externalId)
+	if (idx !== -1) {
+		// Merge/update the existing task (shallow merge)
+		for (const key of Object.keys(newTask)) {
+			if (key === 'children' && Array.isArray(newTask.children)) {
+				// Recursively upsert children
+				if (!Array.isArray(tasks[idx].children)) tasks[idx].children = []
+				for (const child of newTask.children) {
+					upsertTaskInTree(tasks[idx].children, child)
+				}
+			} else {
+				tasks[idx][key] = newTask[key]
+			}
+		}
+	} else {
+		// Add as new
+		tasks.push(newTask)
+	}
+}
+
 module.exports = class ProjectTemplateTasks extends Abstract {
 	/**
 	 * @apiDefine errorBody
@@ -333,6 +355,17 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 
 				// 6. Create tasks and update projects in one go
 				const projectIds = projects.map((project) => project._id)
+
+				// Upsert tasks into each project's tasks array
+				for (const project of projects) {
+					if (!Array.isArray(project.tasks)) project.tasks = []
+					for (const task of processedTasks) {
+						upsertTaskInTree(project.tasks, task)
+					}
+					// Save the updated project tasks (if needed, e.g., with projectQueries.findOneAndUpdate)
+					// await projectQueries.findOneAndUpdate({ _id: project._id }, { $set: { tasks: project.tasks, updatedAt: new Date() } });
+				}
+
 				const result = await projectTemplateTasksHelper.bulkCreateJson(
 					processedTasks,
 					projectTemplateId,

@@ -313,10 +313,16 @@ module.exports = class UserProjectsHelper {
 							task.updatedBy = userId
 							task.updatedAt = new Date()
 
+							// Try to find by _id first
 							let taskIndex = userProject[0].tasks.findIndex(
 								(projectTask) => projectTask._id === task._id
 							)
-
+							// If not found, try to find by externalId
+							if (taskIndex < 0) {
+								taskIndex = userProject[0].tasks.findIndex(
+									(projectTask) => projectTask.externalId === task.externalId
+								)
+							}
 							if (taskIndex < 0) {
 								userProject[0].tasks.push(task)
 							} else {
