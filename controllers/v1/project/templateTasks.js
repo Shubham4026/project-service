@@ -22,52 +22,20 @@ const projectTemplateTaskQueries = require(DB_QUERY_BASE_PATH + '/projectTemplat
 function updateTaskInTree(tasks, targetExternalId, updateData) {
 	for (let i = 0; i < tasks.length; i++) {
 		if (tasks[i].externalId === targetExternalId) {
-			// If updateData has children, handle them
-			if (updateData.children && Array.isArray(updateData.children)) {
-				// Get existing children
-				const existingChildren = tasks[i].children || []
-
-				// Create a map of existing children by externalId
-				const existingChildrenMap = new Map(existingChildren.map((child) => [child.externalId, child]))
-
-				// Create a map of new children by externalId
-				const newChildrenMap = new Map(updateData.children.map((child) => [child.externalId, child]))
-
-				// Update or add new children
-				const updatedChildren = updateData.children.map((child) => {
-					if (existingChildrenMap.has(child.externalId)) {
-						// Merge existing child with new data
-						return {
-							...existingChildrenMap.get(child.externalId),
-							...child,
-						}
-					}
-					return child
-				})
-
-				// Update the task with new children
-				tasks[i] = {
-					...tasks[i],
-					...updateData,
-					children: updatedChildren,
-				}
-			} else {
-				// If no children in updateData, remove all children
-				tasks[i] = {
-					...tasks[i],
-					...updateData,
-					children: [], // Remove all children if none specified in request
-				}
+			// Update only the provided fields
+			for (const key of Object.keys(updateData)) {
+				tasks[i][key] = updateData[key]
 			}
-			return true // updated
+			// Do not touch children unless explicitly present in updateData
+			return true
 		}
 		if (Array.isArray(tasks[i].children) && tasks[i].children.length > 0) {
 			if (updateTaskInTree(tasks[i].children, targetExternalId, updateData)) {
-				return true // updated in children
+				return true
 			}
 		}
 	}
-	return false // not found
+	return false
 }
 
 // Helper function to recursively remove a task by externalId from a nested tasks array
@@ -210,21 +178,21 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 	}
 
 	/**
-    * @api {post} /project/v1/project/templateTasks/update/:taskId 
-    * Update projects template.
-    * @apiVersion 1.0.0
-    * @apiGroup Project Template Tasks
-    * @apiSampleRequest /project/v1/project/templateTasks/update/6006b5cca1a95727dbcdf648
-    * @apiHeader {String} internal-access-token internal access token 
-    * @apiHeader {String} X-authenticated-user-token Authenticity token  
-    * @apiUse successBody
-    * @apiUse errorBody
-    * @apiParamExample {json} Response:
-    * {
-        "status": 200,
-        "message": "template task updated successfully"
-      }
-    */
+	 * @api {post} /project/v1/project/templateTasks/update/:taskId 
+	 * Update projects template.
+	 * @apiVersion 1.0.0
+	 * @apiGroup Project Template Tasks
+	 * @apiSampleRequest /project/v1/project/templateTasks/update/6006b5cca1a95727dbcdf648
+	 * @apiHeader {String} internal-access-token internal access token 
+	 * @apiHeader {String} X-authenticated-user-token Authenticity token  
+	 * @apiUse successBody
+	 * @apiUse errorBody
+	 * @apiParamExample {json} Response:
+	 * {
+		"status": 200,
+		"message": "template task updated successfully"
+	  }
+	*/
 
 	/**
 	 * Update project templates task
@@ -418,77 +386,135 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 	async updateTask(req) {
 		return new Promise(async (resolve, reject) => {
 			try {
-				const projectId = req.params._id
+				const solutionId = req.params._id
 				const externalId = req.query.externalId
 				const updateData = req.body
 				const userId = req.userDetails.userInformation?.userId || req.userDetails.id
 
-				if (!projectId || !externalId) {
+				if (!solutionId) {
 					return resolve({
 						status: HTTP_STATUS_CODE.bad_request.status,
-						message: 'projectId and externalId are required',
+						message: 'solutionId is required',
 					})
 				}
 
-				// Validate project
-				const projectArr = await projectQueries.projectDocument({ _id: projectId })
-				if (!projectArr || !projectArr.length) {
-					return resolve({
-						status: HTTP_STATUS_CODE.bad_request.status,
-						message: 'Project not found',
+				// 1. Fetch all projects for this solution
+				const projectsResponse = await projectTemplateQueries.getProjectsBySolutionId(solutionId)
+				if (!projectsResponse.success) {
+					return reject({
+						status: HTTP_STATUS_CODE.internal_server_error.status,
+						message: projectsResponse.message || 'Failed to fetch projects',
 					})
 				}
-				const project = projectArr[0]
-				const projectTemplateId = project.projectTemplateId
 
-				try {
+				const projects = projectsResponse.data
+				if (!projects || !projects.length) {
+					return reject({
+						status: HTTP_STATUS_CODE.not_found.status,
+						message: 'No projects found for this solution',
+					})
+				}
+
+				// 2. Check if any task is started in any project
+				const isTaskStartedInAnyProject = (projects, taskExternalIds) => {
+					for (const project of projects) {
+						const findStartedTask = (tasks) => {
+							if (!tasks || !Array.isArray(tasks)) return false
+							for (const task of tasks) {
+								if (taskExternalIds.includes(task.externalId)) {
+									if (task.status && task.status !== 'notStarted') {
+										return true
+									}
+								}
+								if (task.children && Array.isArray(task.children)) {
+									if (findStartedTask(task.children)) return true
+								}
+							}
+							return false
+						}
+						if (findStartedTask(project.tasks)) {
+							return true
+						}
+					}
+					return false
+				}
+
+				const taskExternalIds = (updateData.tasks || []).map((task) => task.externalId)
+				if (taskExternalIds.length && isTaskStartedInAnyProject(projects, taskExternalIds)) {
+					return resolve({
+						status: HTTP_STATUS_CODE.bad_request.status,
+						message: `Cannot update tasks as one or more tasks have already started in projects`,
+					})
+				}
+				if (!taskExternalIds.length && externalId && isTaskStartedInAnyProject(projects, [externalId])) {
+					return resolve({
+						status: HTTP_STATUS_CODE.bad_request.status,
+						message: `Cannot update task ${externalId} as it has already started in one or more projects`,
+					})
+				}
+
+				// 3. Process each project
+				const updatedProjects = []
+				for (const project of projects) {
+					const projectId = project._id
+					const projectTemplateId = project.projectTemplateId
 					const projectTasks = project.tasks || []
 					const updatedTaskIds = []
 
-					// Process each task in the tasks array
-					for (const taskData of updateData.tasks) {
-						// Fetch the template task by externalId and projectTemplateId
+					// If tasks array is present in updateData, update each
+					if (Array.isArray(updateData.tasks)) {
+						for (const taskData of updateData.tasks) {
+							// Get the template task
+							const templateTasks = await projectTemplateTasksHelper.getTasksByExternalIdAndTemplateId(
+								taskData.externalId,
+								projectTemplateId
+							)
+							if (templateTasks && templateTasks.length) {
+								await projectTemplateTasksHelper.update(templateTasks[0]._id, taskData, userId)
+							}
+							const updated = updateTaskInTree(projectTasks, taskData.externalId, taskData)
+							if (updated) updatedTaskIds.push(taskData.externalId)
+						}
+					} else if (externalId) {
+						// Fallback: update single task by externalId and updateData
 						const templateTasks = await projectTemplateTasksHelper.getTasksByExternalIdAndTemplateId(
-							taskData.externalId,
+							externalId,
 							projectTemplateId
 						)
-
-						if (!templateTasks || !templateTasks.length) {
-							throw new Error(`Template task not found for externalId: ${taskData.externalId}`)
+						if (templateTasks && templateTasks.length) {
+							await projectTemplateTasksHelper.update(templateTasks[0]._id, updateData, userId)
 						}
-
-						const templateTask = templateTasks[0]
-
-						// Update the template task
-						await projectTemplateTasksHelper.update(templateTask._id, taskData, userId)
-
-						// Update the task in project document
-						const updated = updateTaskInTree(projectTasks, taskData.externalId, taskData)
-						if (!updated) {
-							throw new Error(`Task not found in project: ${taskData.externalId}`)
-						}
-
-						updatedTaskIds.push(taskData.externalId)
+						const updated = updateTaskInTree(projectTasks, externalId, updateData)
+						if (updated) updatedTaskIds.push(externalId)
 					}
 
-					// Update the project document with all changes
-					await projectQueries.findOneAndUpdate(
-						{ _id: projectId },
-						{ $set: { tasks: projectTasks, updatedAt: new Date() } }
-					)
-
-					return resolve({
-						status: HTTP_STATUS_CODE.ok.status,
-						message: 'Tasks updated successfully',
-						result: {
+					if (updatedTaskIds.length > 0) {
+						await projectQueries.findOneAndUpdate(
+							{ _id: projectId },
+							{ $set: { tasks: projectTasks, updatedAt: new Date() } }
+						)
+						updatedProjects.push({
 							projectId: projectId,
 							projectTemplateId: projectTemplateId,
 							updatedTaskIds: updatedTaskIds,
-						},
-					})
-				} catch (error) {
-					throw error
+						})
+					}
 				}
+
+				if (!updatedProjects.length) {
+					return resolve({
+						status: HTTP_STATUS_CODE.bad_request.status,
+						message: 'No tasks were updated. Either tasks were not found or already started.',
+					})
+				}
+
+				return resolve({
+					status: HTTP_STATUS_CODE.ok.status,
+					message: 'Tasks updated successfully',
+					result: {
+						updatedProjects: updatedProjects,
+					},
+				})
 			} catch (error) {
 				return reject({
 					status: error.status || HTTP_STATUS_CODE.internal_server_error.status,
