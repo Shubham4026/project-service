@@ -280,7 +280,6 @@ module.exports = class ProjectTemplateTasksHelper {
 				allValues.solutionDetails = solutionDetails
 
 				// Always set learningResources from parsedData, even if empty or missing
-				allValues.learningResources = parsedData.learningResources || []
 
 				if (!parsedData.STATUS) {
 					let taskData = {}
