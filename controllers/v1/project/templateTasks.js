@@ -24,7 +24,16 @@ function updateTaskInTree(tasks, targetExternalId, updateData) {
 		if (tasks[i].externalId === targetExternalId) {
 			// Update only the provided fields
 			for (const key of Object.keys(updateData)) {
-				tasks[i][key] = updateData[key]
+				if (key === 'metaInformation' && updateData.metaInformation) {
+					if (!tasks[i].metaInformation) {
+						tasks[i].metaInformation = {}
+					}
+					Object.keys(updateData.metaInformation).forEach((metaKey) => {
+						tasks[i].metaInformation[metaKey] = updateData.metaInformation[metaKey]
+					})
+				} else {
+					tasks[i][key] = updateData[key]
+				}
 			}
 			// Do not touch children unless explicitly present in updateData
 			return true
@@ -431,6 +440,33 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 					})
 				}
 
+				// Transform the update data to include metaInformation
+				const transformTaskData = (task) => {
+					const transformedTask = { ...task }
+					transformedTask.metaInformation = {
+						hasAParentTask: task.hasAParentTask || 'NO',
+						parentTaskId: task.parentTaskId || '',
+						startDate: task.startDate || '',
+						endDate: task.endDate || '',
+					}
+					// Remove the original fields that are now in metaInformation
+					delete transformedTask.hasAParentTask
+					delete transformedTask.parentTaskId
+					delete transformedTask.startDate
+					delete transformedTask.endDate
+					return transformedTask
+				}
+
+				// Transform the update data
+				let transformedUpdateData
+				if (Array.isArray(updateData.tasks)) {
+					transformedUpdateData = {
+						tasks: updateData.tasks.map((task) => transformTaskData(task)),
+					}
+				} else if (externalId) {
+					transformedUpdateData = transformTaskData(updateData)
+				}
+
 				// 1. Fetch all projects for this solution
 				const projectsResponse = await projectTemplateQueries.getProjectsBySolutionId(solutionId)
 				if (!projectsResponse.success) {
@@ -448,7 +484,7 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 					})
 				}
 
-				// 2. Process each project (removed status check)
+				// 2. Process each project
 				const updatedProjects = []
 				for (const project of projects) {
 					const projectId = project._id
@@ -457,8 +493,8 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 					const updatedTaskIds = []
 
 					// If tasks array is present in updateData, update each
-					if (Array.isArray(updateData.tasks)) {
-						for (const taskData of updateData.tasks) {
+					if (Array.isArray(transformedUpdateData.tasks)) {
+						for (const taskData of transformedUpdateData.tasks) {
 							// Get the template task
 							const templateTasks = await projectTemplateTasksHelper.getTasksByExternalIdAndTemplateId(
 								taskData.externalId,
@@ -477,9 +513,9 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 							projectTemplateId
 						)
 						if (templateTasks && templateTasks.length) {
-							await projectTemplateTasksHelper.update(templateTasks[0]._id, updateData, userId)
+							await projectTemplateTasksHelper.update(templateTasks[0]._id, transformedUpdateData, userId)
 						}
-						const updated = updateTaskInTree(projectTasks, externalId, updateData)
+						const updated = updateTaskInTree(projectTasks, externalId, transformedUpdateData)
 						if (updated) updatedTaskIds.push(externalId)
 					}
 
