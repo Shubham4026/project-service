@@ -627,12 +627,12 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 							if (!tasks || !Array.isArray(tasks)) return false
 
 							for (const task of tasks) {
-								if (task.externalId === targetExternalId) {
+								if (task && task.externalId === targetExternalId) {
 									if (task.status && task.status !== 'notStarted') {
 										return true
 									}
 								}
-								if (task.children && Array.isArray(task.children)) {
+								if (task && task.children && Array.isArray(task.children)) {
 									if (findStartedTask(task.children)) return true
 								}
 							}
@@ -657,7 +657,7 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 				// Helper function to check if all children are not started
 				const areAllChildrenNotStarted = (children) => {
 					if (!children || !Array.isArray(children)) return true
-					return children.every((child) => !child.status || child.status === 'notStarted')
+					return children.every((child) => child && (!child.status || child.status === 'notStarted'))
 				}
 
 				// Helper function to find task by externalId
@@ -665,10 +665,10 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 					if (!tasks || !Array.isArray(tasks)) return null
 
 					for (const task of tasks) {
-						if (task.externalId === targetId) {
+						if (task && task.externalId === targetId) {
 							return task
 						}
-						if (task.children && Array.isArray(task.children)) {
+						if (task && task.children && Array.isArray(task.children)) {
 							const foundInChildren = findTaskByExternalId(task.children, targetId)
 							if (foundInChildren) return foundInChildren
 						}
@@ -679,7 +679,7 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 				// Check if task can be deleted in all projects before proceeding
 				for (const project of projects) {
 					const projectTasks = project.tasks || []
-					const mainTask = projectTasks.find((task) => task.externalId === externalId)
+					const mainTask = projectTasks.find((task) => task && task.externalId === externalId)
 
 					if (mainTask) {
 						if (!areAllChildrenNotStarted(mainTask.children)) {
@@ -716,23 +716,82 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 						.lean()
 
 					if (templateTasks && templateTasks.length > 0) {
+						// Delete the template task
 						await database.models.projectTemplateTasks.deleteOne({ _id: templateTasks[0]._id })
+
+						// Update project template to remove task reference
+						await database.models.projectTemplates.updateOne(
+							{ _id: projectTemplateId },
+							{
+								$pull: {
+									tasks: templateTasks[0]._id,
+									taskSequence: externalId,
+								},
+							}
+						)
 					}
 
-					// Remove from project tasks
-					const mainTask = projectTasks.find((task) => task.externalId === externalId)
+					// Remove from project tasks and clean up references
+					const mainTask = projectTasks.find((task) => task && task.externalId === externalId)
 					if (mainTask) {
-						const updatedTasks = projectTasks.filter((task) => task.externalId !== externalId)
+						// Remove the task and update taskSequence
+						const updatedTasks = projectTasks.filter((task) => task && task.externalId !== externalId)
+						const updatedTaskSequence = project.taskSequence
+							? project.taskSequence.filter((id) => id !== externalId)
+							: []
+
 						await projectQueries.findOneAndUpdate(
 							{ _id: projectId },
-							{ $set: { tasks: updatedTasks, updatedAt: new Date() } }
+							{
+								$set: {
+									tasks: updatedTasks.filter((task) => task !== null),
+									taskSequence: updatedTaskSequence,
+									updatedAt: new Date(),
+								},
+							}
 						)
 					} else {
-						const removed = removeTaskFromTree(projectTasks, externalId)
+						// For child tasks, recursively remove and update parent references
+						const removeTaskAndUpdateParent = (tasks, targetId) => {
+							if (!tasks || !Array.isArray(tasks)) return false
+
+							for (let i = 0; i < tasks.length; i++) {
+								if (tasks[i] && tasks[i].externalId === targetId) {
+									tasks.splice(i, 1)
+									return true
+								}
+								if (tasks[i] && tasks[i].children && Array.isArray(tasks[i].children)) {
+									if (removeTaskAndUpdateParent(tasks[i].children, targetId)) {
+										// Update parent's hasSubTasks flag if needed
+										if (tasks[i].children.length === 0) {
+											tasks[i].hasSubTasks = false
+										}
+										return true
+									}
+								}
+							}
+							return false
+						}
+
+						const removed = removeTaskAndUpdateParent(projectTasks, externalId)
 						if (removed) {
+							// Update taskSequence and clean up null values
+							const updatedTaskSequence = project.taskSequence
+								? project.taskSequence.filter((id) => id !== externalId)
+								: []
+
+							// Clean up any null values from tasks array
+							const cleanedTasks = projectTasks.filter((task) => task !== null)
+
 							await projectQueries.findOneAndUpdate(
 								{ _id: projectId },
-								{ $set: { tasks: projectTasks, updatedAt: new Date() } }
+								{
+									$set: {
+										tasks: cleanedTasks,
+										taskSequence: updatedTaskSequence,
+										updatedAt: new Date(),
+									},
+								}
 							)
 						}
 					}
