@@ -699,6 +699,36 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 					}
 				}
 
+				// ENHANCEMENT: Check if this is the only task in any project - if so, delete the entire project
+				// This enhancement doesn't impact existing functionality - it only adds an early exit condition
+				// when there's exactly one parent task in the project and that task is being deleted
+				for (const project of projects) {
+					const projectTasks = project.tasks || []
+					const mainTask = projectTasks.find((task) => task && task.externalId === externalId)
+
+					// Count only parent tasks (not children)
+					let parentTaskCount = 0
+
+					for (const task of projectTasks) {
+						if (task) {
+							parentTaskCount++ // Count only parent task
+						}
+					}
+
+					// If this is the only parent task and it's being deleted
+					if (parentTaskCount === 1 && mainTask) {
+						// Call the delete method to delete the entire project
+						const deleteReq = { params: { _id: solutionId } }
+						try {
+							const deleteResult = await this.delete(deleteReq)
+							// Return the result directly to resolve the Promise
+							return resolve(deleteResult)
+						} catch (error) {
+							return reject(error)
+						}
+					}
+				}
+
 				// If we reach here, we can safely delete the task from all projects
 				const deletedTasks = []
 
