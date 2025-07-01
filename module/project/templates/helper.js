@@ -1037,50 +1037,38 @@ module.exports = class ProjectTemplatesHelper {
 
 				let tasks = []
 
-				// Always fetch all tasks from the template's tasks array (includes both parent and child tasks)
-				if (templateDocument[0].tasks && templateDocument[0].tasks.length > 0) {
-					let projectionKey = CONSTANTS.common.CHILDREN
+				if (templateDocument[0].taskSequence && templateDocument[0].taskSequence.length > 0) {
+					let projectionKey = CONSTANTS.common.TASK_SEQUENCE
 					let findQuery = {
-						_id: {
-							$in: templateDocument[0].tasks,
+						externalId: {
+							$in: templateDocument[0].taskSequence,
 						},
 					}
 
 					tasks = await _taskAndSubTaskinSequence(findQuery, projectionKey)
-
-					// Sort tasks based on taskSequence if it exists, otherwise use tasks array order
-					if (templateDocument[0].taskSequence && templateDocument[0].taskSequence.length > 0) {
-						// Separate parent tasks and child tasks
-						let parentTasks = tasks.filter((task) => !task.parentId || task.parentId === '')
-						let childTasks = tasks.filter((task) => task.parentId && task.parentId !== '')
-
-						// Sort parent tasks based on taskSequence
-						let orderedParentTasks = []
-
-						// First, add parent tasks that are in taskSequence in the correct order
-						for (const externalId of templateDocument[0].taskSequence) {
-							const parentTask = parentTasks.find(
-								(task) => String(task.externalId) === String(externalId)
-							)
-							if (parentTask) {
-								orderedParentTasks.push(parentTask)
+					// sort the order of the tasks
+					let orderedTasks = templateDocument[0]['taskSequence'].map((id) =>
+						tasks.find((task) => String(task.externalId) === String(id))
+					)
+					tasks = orderedTasks
+				} else {
+					if (templateDocument[0].tasks && templateDocument[0].tasks.length > 0) {
+						let projectionKey = CONSTANTS.common.CHILDREN
+						if (templateDocument[0].tasks) {
+							let findQuery = {
+								_id: {
+									$in: templateDocument[0].tasks,
+								},
+								parentId: { $exists: false },
 							}
+
+							tasks = await _taskAndSubTaskinSequence(findQuery, projectionKey)
+							// sort the order of the tasks
+							let orderedTasks = templateDocument[0]['tasks'].map((id) =>
+								tasks.find((task) => String(task._id) === String(id))
+							)
+							tasks = orderedTasks
 						}
-
-						// Then, add any remaining parent tasks that are not in taskSequence
-						const remainingParentTasks = parentTasks.filter(
-							(task) => !templateDocument[0].taskSequence.includes(task.externalId)
-						)
-
-						// Combine ordered parent tasks with remaining parent tasks
-						tasks = [...orderedParentTasks, ...remainingParentTasks]
-					} else {
-						// Sort by tasks array order - only parent tasks
-						let parentTasks = tasks.filter((task) => !task.parentId || task.parentId === '')
-						let orderedTasks = templateDocument[0]['tasks']
-							.map((id) => parentTasks.find((task) => String(task._id) === String(id)))
-							.filter((task) => task) // Remove undefined entries
-						tasks = orderedTasks
 					}
 				}
 

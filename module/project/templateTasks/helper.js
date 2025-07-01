@@ -826,7 +826,6 @@ module.exports = class ProjectTemplateTasksHelper {
 				const createdTasks = new Map() // Map to store created tasks by externalId
 				const parentChildMap = new Map() // Map to store parent-child relationships
 				const updatedParentTasks = new Set() // Set to track updated parent tasks
-				const allNewTaskIds = [] // Array to store all new task IDs for template update
 
 				for (const task of tasks) {
 					try {
@@ -843,23 +842,6 @@ module.exports = class ProjectTemplateTasksHelper {
 								message: 'Task with this externalId already exists',
 							})
 							continue
-						}
-
-						// For subtasks, check if parent task exists
-						if (task.metaInformation.hasAParentTask === 'YES' && task.metaInformation.parentTaskId) {
-							const parentTask = await projectTemplateTaskQueries.taskDocuments(
-								{ externalId: task.metaInformation.parentTaskId },
-								['_id', 'externalId', 'children', 'hasSubTasks']
-							)
-
-							if (!parentTask.length > 0) {
-								results.push({
-									externalId: task.externalId,
-									STATUS: 'Error',
-									message: `Parent task with externalId '${task.metaInformation.parentTaskId}' not found`,
-								})
-								continue
-							}
 						}
 
 						// Create new task
@@ -879,9 +861,6 @@ module.exports = class ProjectTemplateTasksHelper {
 						})
 
 						if (newTask._id) {
-							// Add task ID to the array for template update
-							allNewTaskIds.push(newTask._id)
-
 							results.push({
 								externalId: newTask.externalId,
 								_id: newTask._id,
@@ -934,6 +913,12 @@ module.exports = class ProjectTemplateTasksHelper {
 								}
 								parentChildMap.get(task.metaInformation.parentTaskId).push(task.externalId)
 							}
+
+							// Update project template's tasks array
+							await projectTemplateQueries.findOneAndUpdate(
+								{ _id: projectTemplateId },
+								{ $addToSet: { tasks: newTask._id } }
+							)
 						}
 					} catch (error) {
 						console.error(error)
@@ -943,14 +928,6 @@ module.exports = class ProjectTemplateTasksHelper {
 							message: error.message,
 						})
 					}
-				}
-
-				// Update project template's tasks array with ALL new task IDs
-				if (allNewTaskIds.length > 0) {
-					await projectTemplateQueries.findOneAndUpdate(
-						{ _id: projectTemplateId },
-						{ $addToSet: { tasks: { $each: allNewTaskIds } } }
-					)
 				}
 
 				// Update all projects with the new tasks
@@ -977,7 +954,7 @@ module.exports = class ProjectTemplateTasksHelper {
 						const currentTaskSequence = projectDoc[0].taskSequence || []
 						const currentTaskReport = projectDoc[0].taskReport || { total: 0, notStarted: 0 }
 
-						// First, add all parent tasks (only if they don't exist)
+						// First, add all parent tasks
 						for (const [externalId, taskData] of createdTasks.entries()) {
 							if (taskData.metaInformation.hasAParentTask === 'NO') {
 								if (!currentTasks.some((t) => t.externalId === externalId)) {
@@ -999,46 +976,25 @@ module.exports = class ProjectTemplateTasksHelper {
 									(t) => t.externalId === taskData.metaInformation.parentTaskId
 								)
 								if (parentTask) {
-									// Ensure parent task has children array
+									// Add child task to parent's children array
 									if (!parentTask.children) {
 										parentTask.children = []
 									}
-
-									// Check if this child task already exists
-									const existingChildIndex = parentTask.children.findIndex(
-										(child) => child.externalId === externalId
-									)
-
-									if (existingChildIndex === -1) {
-										// Add new child task to parent's children array
+									if (!parentTask.children.some((child) => child.externalId === externalId)) {
 										parentTask.children.push(taskData)
-									} else {
-										// Update existing child task with new data
-										parentTask.children[existingChildIndex] = {
-											...parentTask.children[existingChildIndex],
-											...taskData,
-										}
 									}
-
 									parentTask.hasSubTasks = true
 								} else {
-									// If parent not found in current project, skip adding this subtask
-									// This ensures we don't create orphaned subtasks
-									console.warn(
-										`Parent task ${taskData.metaInformation.parentTaskId} not found in project ${projectId}, skipping subtask ${externalId}`
-									)
+									// If parent not found, add as standalone task
+									if (!currentTasks.some((t) => t.externalId === externalId)) {
+										currentTasks.push(taskData)
+									}
 								}
 							}
 						}
 
-						// Update task sequence - only add parent task externalIds to sequence
-						const parentTaskExternalIds = []
-						for (const [externalId, taskData] of createdTasks.entries()) {
-							if (taskData.metaInformation.hasAParentTask === 'NO') {
-								parentTaskExternalIds.push(externalId)
-							}
-						}
-						const newTaskSequence = [...new Set([...currentTaskSequence, ...parentTaskExternalIds])]
+						// Update task sequence
+						const newTaskSequence = [...new Set([...currentTaskSequence, ...newTaskExternalIds])]
 
 						// Update task report
 						const updatedTaskReport = {
@@ -1079,12 +1035,10 @@ module.exports = class ProjectTemplateTasksHelper {
 					const currentSequence = template[0].taskSequence || []
 					let updatedSequence = [...currentSequence]
 
-					// Add only parent task externalIds to sequence (not subtasks)
-					for (const [externalId, taskData] of createdTasks.entries()) {
-						if (taskData.metaInformation.hasAParentTask === 'NO') {
-							if (!updatedSequence.includes(externalId)) {
-								updatedSequence.push(externalId)
-							}
+					// Add parent task's externalId to sequence if it exists
+					for (const [parentId, childIds] of parentChildMap.entries()) {
+						if (!updatedSequence.includes(parentId)) {
+							updatedSequence.push(parentId)
 						}
 					}
 
@@ -1096,24 +1050,10 @@ module.exports = class ProjectTemplateTasksHelper {
 
 				// Update parent tasks with their children's sequence
 				for (const [parentId, childIds] of parentChildMap.entries()) {
-					// Get the current parent task to preserve existing children
-					const parentTask = await projectTemplateTaskQueries.taskDocuments({ externalId: parentId }, [
-						'taskSequence',
-						'children',
-					])
-
-					if (parentTask.length > 0) {
-						const currentSequence = parentTask[0].taskSequence || []
-						const currentChildren = parentTask[0].children || []
-
-						// Merge existing sequence with new child IDs
-						const updatedSequence = [...new Set([...currentSequence, ...childIds])]
-
-						await projectTemplateTaskQueries.findOneAndUpdate(
-							{ externalId: parentId },
-							{ $set: { taskSequence: updatedSequence } }
-						)
-					}
+					await projectTemplateTaskQueries.findOneAndUpdate(
+						{ externalId: parentId },
+						{ $set: { taskSequence: childIds } }
+					)
 				}
 
 				return resolve({
