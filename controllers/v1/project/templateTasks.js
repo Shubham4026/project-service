@@ -708,12 +708,21 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 					const projectTemplateId = project.projectTemplateId
 
 					// Delete from projectTemplateTasks
-					const templateTasks = await database.models.projectTemplateTasks
+					let templateTasks = await database.models.projectTemplateTasks
 						.find({
 							externalId: externalId,
 							projectTemplateId: projectTemplateId,
 						})
 						.lean()
+
+					// If not found with projectTemplateId, try without it
+					if (!templateTasks || templateTasks.length === 0) {
+						templateTasks = await database.models.projectTemplateTasks
+							.find({
+								externalId: externalId,
+							})
+							.lean()
+					}
 
 					if (templateTasks && templateTasks.length > 0) {
 						// Delete the template task
@@ -729,6 +738,35 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 								},
 							}
 						)
+
+						// If this is a child task, also remove it from parent task's taskSequence
+						if (templateTasks[0].metaInformation && templateTasks[0].metaInformation.parentTaskId) {
+							const parentTaskId = templateTasks[0].metaInformation.parentTaskId
+
+							// Find the parent task in projectTemplateTasks
+							const parentTask = await database.models.projectTemplateTasks.findOne({
+								externalId: parentTaskId,
+								projectTemplateId: projectTemplateId,
+							})
+
+							if (parentTask && parentTask.taskSequence) {
+								// Remove the child task's externalId from parent's taskSequence
+								const updatedTaskSequence = parentTask.taskSequence.filter((id) => id !== externalId)
+
+								await database.models.projectTemplateTasks.updateOne(
+									{ _id: parentTask._id },
+									{ $set: { taskSequence: updatedTaskSequence } }
+								)
+							}
+
+							// Clean up main template's taskSequence to remove any child tasks
+							// This ensures that when new projects are created, the tasksAndSubTasks function
+							// won't try to fetch deleted child tasks from the main template's taskSequence
+							await projectTemplateTasksHelper.cleanupTemplateTaskSequence(projectTemplateId)
+
+							// Also clean up any orphaned child tasks from parent task sequences
+							await projectTemplateTasksHelper.cleanupParentTaskSequences(projectTemplateId)
+						}
 					}
 
 					// Remove from project tasks and clean up references
