@@ -1050,10 +1050,21 @@ module.exports = class ProjectTemplateTasksHelper {
 
 				// Update parent tasks with their children's sequence
 				for (const [parentId, childIds] of parentChildMap.entries()) {
-					await projectTemplateTaskQueries.findOneAndUpdate(
-						{ externalId: parentId },
-						{ $set: { taskSequence: childIds } }
-					)
+					// Get the current parent task to preserve existing children
+					const parentTask = await projectTemplateTaskQueries.taskDocuments({ externalId: parentId }, [
+						'taskSequence',
+					])
+
+					if (parentTask.length > 0) {
+						const currentSequence = parentTask[0].taskSequence || []
+						// Merge existing sequence with new child IDs
+						const updatedSequence = [...new Set([...currentSequence, ...childIds])]
+
+						await projectTemplateTaskQueries.findOneAndUpdate(
+							{ externalId: parentId },
+							{ $set: { taskSequence: updatedSequence } }
+						)
+					}
 				}
 
 				return resolve({
