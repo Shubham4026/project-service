@@ -21,6 +21,8 @@ const projectTemplateTaskQueries = require(DB_QUERY_BASE_PATH + '/projectTemplat
 // Helper function to recursively update a task by externalId in a nested tasks array
 function updateTaskInTree(tasks, targetExternalId, updateData) {
 	for (let i = 0; i < tasks.length; i++) {
+		// Skip null or undefined tasks
+		if (!tasks[i]) continue
 		if (tasks[i].externalId === targetExternalId) {
 			// Update only the provided fields
 			for (const key of Object.keys(updateData)) {
@@ -66,6 +68,8 @@ function removeTaskFromTree(tasks, targetExternalId) {
 	if (!tasks || !Array.isArray(tasks)) return false
 
 	for (let i = 0; i < tasks.length; i++) {
+		// Skip null or undefined tasks
+		if (!tasks[i]) continue
 		// Check current task
 		if (tasks[i].externalId === targetExternalId) {
 			tasks.splice(i, 1)

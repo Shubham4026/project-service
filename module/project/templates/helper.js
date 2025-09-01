@@ -1304,6 +1304,8 @@ function _taskAndSubTaskinSequence(query, projectionValue) {
 			])
 
 			for (let task = 0; task < tasks.length; task++) {
+				// Skip null or undefined tasks
+				if (!tasks[task]) continue
 				if (tasks[task][projectionValue] && tasks[task][projectionValue].length > 0) {
 					let subTaskQuery
 					if (projectionValue == CONSTANTS.common.CHILDREN) {

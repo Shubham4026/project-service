@@ -792,7 +792,7 @@ function validateAllTaskDates(tasks) {
 
 	// Second pass: Validate child task dates against parent dates
 	for (const [parentId, childTasks] of parentChildMap.entries()) {
-		const parentTask = tasks.find((t) => t.externalId === parentId)
+		const parentTask = tasks.find((t) => t && t.externalId === parentId)
 		if (!parentTask) {
 			return {
 				isValid: false,
