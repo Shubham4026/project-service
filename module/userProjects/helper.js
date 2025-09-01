@@ -320,7 +320,7 @@ module.exports = class UserProjectsHelper {
 							// If not found, try to find by externalId
 							if (taskIndex < 0) {
 								taskIndex = userProject[0].tasks.findIndex(
-									(projectTask) => projectTask.externalId === task.externalId
+									(projectTask) => projectTask && projectTask.externalId === task.externalId
 								)
 							}
 							if (taskIndex < 0) {
@@ -348,6 +348,11 @@ module.exports = class UserProjectsHelper {
 					taskReport.total = updateProject.tasks.length
 
 					updateProject.tasks.forEach((task) => {
+						// Skip null or undefined tasks
+						if (!task) {
+							return
+						}
+
 						//consider tasks where isDeleted is false.
 						if (task.isDeleted == false) {
 							if (!taskReport[task.status]) {
@@ -1590,24 +1595,32 @@ module.exports = class UserProjectsHelper {
 				//     projectDetails.data.status = UTILS.convertProjectStatus(projectDetails.data.status);
 				// }
 				// make templateUrl downloadable befor passing to front-end
-				if (
-					projectDetails.data.certificate &&
-					projectDetails.data.certificate.pdfPath &&
-					projectDetails.data.certificate.pdfPath !== '' &&
-					projectDetails.data.certificate.svgPath &&
-					projectDetails.data.certificate.svgPath !== ''
-				) {
-					let certificateTemplateDownloadableUrl = await cloudServicesHelper.getDownloadableUrl([
-						projectDetails.data.certificate.pdfPath,
-						projectDetails.data.certificate.svgPath,
-					])
+				try {
 					if (
-						certificateTemplateDownloadableUrl &&
-						certificateTemplateDownloadableUrl.result &&
-						certificateTemplateDownloadableUrl.result.length > 0
+						projectDetails.data &&
+						projectDetails.data.certificate &&
+						projectDetails.data.certificate.pdfPath &&
+						projectDetails.data.certificate.pdfPath !== '' &&
+						projectDetails.data.certificate.svgPath &&
+						projectDetails.data.certificate.svgPath !== ''
 					) {
-						projectDetails.data.certificate['pdfUrl'] = certificateTemplateDownloadableUrl.result[0].url
-						projectDetails.data.certificate['svgUrl'] = certificateTemplateDownloadableUrl.result[1].url
+						let certificateTemplateDownloadableUrl = await cloudServicesHelper.getDownloadableUrl([
+							projectDetails.data.certificate.pdfPath,
+							projectDetails.data.certificate.svgPath,
+						])
+						if (
+							certificateTemplateDownloadableUrl &&
+							certificateTemplateDownloadableUrl.result &&
+							certificateTemplateDownloadableUrl.result.length > 0
+						) {
+							projectDetails.data.certificate['pdfUrl'] = certificateTemplateDownloadableUrl.result[0].url
+							projectDetails.data.certificate['svgUrl'] = certificateTemplateDownloadableUrl.result[1].url
+						}
+					}
+				} catch (certificateError) {
+					// Remove certificate data if there's an error processing it
+					if (projectDetails.data && projectDetails.data.certificate) {
+						delete projectDetails.data.certificate
 					}
 				}
 				return resolve({
@@ -1675,10 +1688,10 @@ module.exports = class UserProjectsHelper {
 
 					if (tasksAndSubTasks.length > 0) {
 						result.tasks = _projectTask(tasksAndSubTasks)
-						result.tasks.forEach((task) => {
+						result?.tasks?.forEach((task) => {
 							if (
-								task.type === CONSTANTS.common.ASSESSMENT ||
-								task.type === CONSTANTS.common.OBSERVATION
+								task?.type === CONSTANTS.common.ASSESSMENT ||
+								task?.type === CONSTANTS.common.OBSERVATION
 							) {
 								result.assesmentOrObservationTask = true
 							}
@@ -1688,15 +1701,15 @@ module.exports = class UserProjectsHelper {
 							total: result.tasks.length,
 						}
 
-						result.tasks.forEach((task) => {
-							if (task.isDeleted == false) {
-								if (!taskReport[task.status]) {
-									taskReport[task.status] = 1
+						result?.tasks?.forEach((task) => {
+							if (task?.isDeleted == false) {
+								if (!taskReport[task?.status]) {
+									taskReport[task?.status] = 1
 								} else {
-									taskReport[task.status] += 1
+									taskReport[task?.status] += 1
 								}
 							} else {
-								taskReport.total = taskReport.total - 1
+								taskReport.total = taskReport?.total - 1
 							}
 						})
 
@@ -2237,6 +2250,7 @@ module.exports = class UserProjectsHelper {
 							delete projectData.title
 
 							if (
+								projectData &&
 								projectData.certificate &&
 								projectData.certificate.transactionId &&
 								projectData.certificate.transactionId !== '' &&
@@ -2250,36 +2264,40 @@ module.exports = class UserProjectsHelper {
 						})
 
 						if (templateFilePath.length > 0) {
-							let certificateTemplateDownloadableUrl = await cloudServicesHelper.getDownloadableUrl(
-								templateFilePath
-							)
-							if (
-								!certificateTemplateDownloadableUrl ||
-								!certificateTemplateDownloadableUrl.result ||
-								!certificateTemplateDownloadableUrl.result.length > 0
-							) {
-								throw {
-									message: CONSTANTS.apiResponses.DOWNLOADABLE_URL_NOT_FOUND,
-								}
-							}
-							// map downloadable templateUrl to corresponding project data
-							data.forEach((projectData) => {
-								if (projectData.certificate) {
-									var pdfItemFromUrlArray = certificateTemplateDownloadableUrl.result.find(
-										(item) => item.payload['sourcePath'] == projectData.certificate.pdfPath
-									)
-									if (pdfItemFromUrlArray) {
-										projectData.certificate.certificatePdfUrl = pdfItemFromUrlArray.url
+							try {
+								let certificateTemplateDownloadableUrl = await cloudServicesHelper.getDownloadableUrl(
+									templateFilePath
+								)
+								if (
+									!certificateTemplateDownloadableUrl ||
+									!certificateTemplateDownloadableUrl.result ||
+									!certificateTemplateDownloadableUrl.result.length > 0
+								) {
+									throw {
+										message: CONSTANTS.apiResponses.DOWNLOADABLE_URL_NOT_FOUND,
 									}
+								}
+								// map downloadable templateUrl to corresponding project data
+								data.forEach((projectData) => {
+									if (projectData && projectData.certificate) {
+										var pdfItemFromUrlArray = certificateTemplateDownloadableUrl.result.find(
+											(item) => item.payload['sourcePath'] == projectData.certificate.pdfPath
+										)
+										if (pdfItemFromUrlArray) {
+											projectData.certificate.certificatePdfUrl = pdfItemFromUrlArray.url
+										}
 
-									var svgItemFromUrlArray = certificateTemplateDownloadableUrl.result.find(
-										(item) => item.payload['sourcePath'] == projectData.certificate.svgPath
-									)
-									if (svgItemFromUrlArray) {
-										projectData.certificate.certificateSvgUrl = svgItemFromUrlArray.url
+										var svgItemFromUrlArray = certificateTemplateDownloadableUrl.result.find(
+											(item) => item.payload['sourcePath'] == projectData.certificate.svgPath
+										)
+										if (svgItemFromUrlArray) {
+											projectData.certificate.certificateSvgUrl = svgItemFromUrlArray.url
+										}
 									}
-								}
-							})
+								})
+							} catch (certificateError) {
+								// Continue without certificate processing
+							}
 						}
 					}
 				}
@@ -3176,6 +3194,8 @@ module.exports = class UserProjectsHelper {
 				// Loop through user projects and collect file paths for certificates
 				for (let userProjectPointer = 0; userProjectPointer < userProject.length; userProjectPointer++) {
 					if (
+						userProject[userProjectPointer] &&
+						userProject[userProjectPointer].certificate &&
 						userProject[userProjectPointer].certificate.svgPath &&
 						userProject[userProjectPointer].certificate.svgPath !== '' &&
 						userProject[userProjectPointer].certificate.pdfPath &&
@@ -3208,33 +3228,42 @@ module.exports = class UserProjectsHelper {
 
 				// Update project data with downloadable URLs for certificates
 				if (certificateFilePath.length > 0) {
-					let certificateFileDownloadableUrl = await cloudServicesHelper.getDownloadableUrl(
-						certificateFilePath
-					)
-					// Throw an error if no downloadable URLs are found
-					if (!certificateFileDownloadableUrl.result || !certificateFileDownloadableUrl.result.length > 0) {
-						throw {
-							message: CONSTANTS.apiResponses.DOWNLOADABLE_URL_NOT_FOUND,
+					try {
+						let certificateFileDownloadableUrl = await cloudServicesHelper.getDownloadableUrl(
+							certificateFilePath
+						)
+						// Throw an error if no downloadable URLs are found
+						if (
+							!certificateFileDownloadableUrl.result ||
+							!certificateFileDownloadableUrl.result.length > 0
+						) {
+							throw {
+								message: CONSTANTS.apiResponses.DOWNLOADABLE_URL_NOT_FOUND,
+							}
 						}
+						certificateFileDownloadableUrl = certificateFileDownloadableUrl.result
+						// Map downloadable URLs to the corresponding project data
+						userProject.forEach((projectData) => {
+							if (projectData && projectData.certificate) {
+								// Set SVG path
+								var svgLinkFromUrlArray = certificateFileDownloadableUrl.find(
+									(item) => item.filePath == projectData.certificate.svgPath
+								)
+								if (svgLinkFromUrlArray) {
+									projectData.certificate.svgPath = svgLinkFromUrlArray.url
+								}
+								// Set PDF path in the response
+								var pdfLinkFromArray = certificateFileDownloadableUrl.find(
+									(item) => item.filePath == projectData.certificate.pdfPath
+								)
+								if (pdfLinkFromArray) {
+									projectData.certificate.pdfPath = pdfLinkFromArray.url
+								}
+							}
+						})
+					} catch (certificateError) {
+						// Continue without certificate processing
 					}
-					certificateFileDownloadableUrl = certificateFileDownloadableUrl.result
-					// Map downloadable URLs to the corresponding project data
-					userProject.forEach((projectData) => {
-						// Set SVG path
-						var svgLinkFromUrlArray = certificateFileDownloadableUrl.find(
-							(item) => item.filePath == projectData.certificate.svgPath
-						)
-						if (svgLinkFromUrlArray) {
-							projectData.certificate.svgPath = svgLinkFromUrlArray.url
-						}
-						// Set PDF path in the response
-						var pdfLinkFromArray = certificateFileDownloadableUrl.find(
-							(item) => item.filePath == projectData.certificate.pdfPath
-						)
-						if (pdfLinkFromArray) {
-							projectData.certificate.pdfPath = pdfLinkFromArray.url
-						}
-					})
 				}
 
 				// Count the number of projects with generated certificates
@@ -3325,17 +3354,17 @@ module.exports = class UserProjectsHelper {
 				}
 
 				// Update the project with original transaction information if available
-				if (userProject[0].certificate.transactionId) {
+				if (userProject[0] && userProject[0].certificate && userProject[0].certificate.transactionId) {
 					updateObject['$set']['certificate.originalTransactionInformation.transactionId'] =
 						userProject[0].certificate.transactionId
 				}
-				if (userProject[0].certificate.pdfPath) {
+				if (userProject[0] && userProject[0].certificate && userProject[0].certificate.pdfPath) {
 					updateObject['$set']['certificate.originalTransactionInformation.pdfPath'] =
 						userProject[0].certificate.pdfPath
 					updateObject['$set']['certificate.eligible'] = true
 					updateObject['$set']['certificate.callbackErrorEvent'] = false
 				}
-				if (userProject[0].certificate.svgPath) {
+				if (userProject[0] && userProject[0].certificate && userProject[0].certificate.svgPath) {
 					updateObject['$set']['certificate.originalTransactionInformation.svgPath'] =
 						userProject[0].certificate.svgPath
 				}
@@ -3413,7 +3442,11 @@ module.exports = class UserProjectsHelper {
 				}
 
 				// Check if transaction ID is missing or empty
-				if (!projectDetails.certificate.transactionId || projectDetails.certificate.transactionId === '') {
+				if (
+					!projectDetails.certificate ||
+					!projectDetails.certificate.transactionId ||
+					projectDetails.certificate.transactionId === ''
+				) {
 					throw {
 						status: HTTP_STATUS_CODE.bad_request.status,
 						message: CONSTANTS.apiResponses.CERTIFICATE_NOT_AVAILABLE_FOR_THE_PROJECT,
@@ -3421,8 +3454,16 @@ module.exports = class UserProjectsHelper {
 				}
 				// Check if both PDF path and SVG path are missing or empty
 				else if (
-					!(projectDetails.certificate.pdfPath && projectDetails.certificate.pdfPath != '') &&
-					!(projectDetails.certificate.svgPath && projectDetails.certificate.svgPath != '')
+					!(
+						projectDetails.certificate &&
+						projectDetails.certificate.pdfPath &&
+						projectDetails.certificate.pdfPath != ''
+					) &&
+					!(
+						projectDetails.certificate &&
+						projectDetails.certificate.svgPath &&
+						projectDetails.certificate.svgPath != ''
+					)
 				) {
 					throw {
 						status: HTTP_STATUS_CODE.bad_request.status,
@@ -3432,18 +3473,24 @@ module.exports = class UserProjectsHelper {
 
 				let certificatePdfUrl, certificateSvgUrl
 				const certificateUrls = await cloudServicesHelper.getDownloadableUrl([
-					projectDetails.certificate.pdfPath ? projectDetails.certificate.pdfPath : '',
-					projectDetails.certificate.svgPath ? projectDetails.certificate.svgPath : '',
+					projectDetails.certificate && projectDetails.certificate.pdfPath
+						? projectDetails.certificate.pdfPath
+						: '',
+					projectDetails.certificate && projectDetails.certificate.svgPath
+						? projectDetails.certificate.svgPath
+						: '',
 				])
 				if (certificateUrls && certificateUrls.result && certificateUrls.result.length > 0) {
 					for (const certificateUrlsIndex of certificateUrls.result) {
 						if (
+							projectDetails.certificate &&
 							projectDetails.certificate.pdfPath != '' &&
 							certificateUrlsIndex.filePath != '' &&
 							certificateUrlsIndex.filePath == projectDetails.certificate.pdfPath
 						) {
 							certificatePdfUrl = certificateUrlsIndex.url
 						} else if (
+							projectDetails.certificate &&
 							projectDetails.certificate.svgPath != '' &&
 							certificateUrlsIndex.filePath != '' &&
 							certificateUrlsIndex.filePath == projectDetails.certificate.svgPath
@@ -3462,11 +3509,11 @@ module.exports = class UserProjectsHelper {
 					solutionName: projectDetails.solutionInformation.name,
 					userId: projectDetails.userProfile.id,
 					userName: projectDetails.userProfile.name,
-					status: projectDetails.certificate.status,
+					status: projectDetails.certificate ? projectDetails.certificate.status : '',
 					isCertificateVerified: true,
 					completedDate: projectDetails.completedDate,
 					issuedOn: projectDetails.issuedOn,
-					eligible: projectDetails.certificate.eligible,
+					eligible: projectDetails.certificate ? projectDetails.certificate.eligible : false,
 					certificatePdfUrl: certificatePdfUrl ? certificatePdfUrl : '',
 					certificateSvgUrl: certificateSvgUrl ? certificateSvgUrl : '',
 				}
@@ -3543,7 +3590,11 @@ function _projectInformation(project) {
 			if (project.tasks && project.tasks.length > 0) {
 				//order task based on task sequence
 				if (project.taskSequence && project.taskSequence.length > 0) {
-					project.tasks = taskArrayBySequence(project.tasks, project.taskSequence, 'externalId')
+					try {
+						project.tasks = taskArrayBySequence(project.tasks, project.taskSequence, 'externalId')
+					} catch (taskError) {
+						throw taskError
+					}
 				}
 
 				let attachments = []
@@ -3552,6 +3603,11 @@ function _projectInformation(project) {
 
 				for (let task = 0; task < project.tasks.length; task++) {
 					let currentTask = project.tasks[task]
+
+					// Skip null or undefined tasks
+					if (!currentTask) {
+						continue
+					}
 
 					if (currentTask.attachments && currentTask.attachments.length > 0) {
 						for (let attachment = 0; attachment < currentTask.attachments.length; attachment++) {
@@ -3622,8 +3678,22 @@ function _projectInformation(project) {
 }
 
 function taskArrayBySequence(taskArray, sequenceArray, key) {
+	// Filter out null values from the task array
+	const filteredTaskArray = taskArray.filter((task) => task !== null && task !== undefined)
+
 	var map = sequenceArray.reduce((acc, value, index) => ((acc[value] = index + 1), acc), {})
-	const sortedTaskArray = taskArray.sort((a, b) => (map[a[key]] || Infinity) - (map[b[key]] || Infinity))
+
+	const sortedTaskArray = filteredTaskArray.sort((a, b) => {
+		// Add null checks for a and b
+		if (!a || !b) {
+			return 0
+		}
+		// Add null checks for the key property
+		const aValue = a[key] || Infinity
+		const bValue = b[key] || Infinity
+		return (map[aValue] || Infinity) - (map[bValue] || Infinity)
+	})
+
 	return sortedTaskArray
 }
 
@@ -3669,7 +3739,7 @@ function _attachmentInformation(
 					} else {
 						attachmentsUrl.result.forEach((taskAttachments) => {
 							let taskIndex = tasks.findIndex(
-								(task) => task._id === mapTaskIdToAttachment[taskAttachments.filePath].taskId
+								(task) => task && task._id === mapTaskIdToAttachment[taskAttachments.filePath].taskId
 							)
 
 							if (taskIndex > -1) {
@@ -3691,7 +3761,7 @@ function _attachmentInformation(
 					attachments.concat(linkAttachments)
 				} else {
 					Object.keys(linkAttachments).forEach((eachTaskId) => {
-						let taskIdIndex = tasks.findIndex((task) => task._id === eachTaskId)
+						let taskIdIndex = tasks.findIndex((task) => task && task._id === eachTaskId)
 						if (taskIdIndex > -1) {
 							tasks[taskIdIndex].attachments.concat(linkAttachments[eachTaskId])
 						}
@@ -3726,6 +3796,11 @@ function _attachmentInformation(
 
 function _projectTask(tasks, isImportedFromLibrary = false, parentTaskId = '') {
 	tasks.forEach((singleTask) => {
+		// Skip null or undefined tasks
+		if (!singleTask) {
+			return
+		}
+
 		singleTask.externalId = singleTask.externalId ? singleTask.externalId : singleTask.name.toLowerCase()
 		singleTask.type = singleTask.type ? singleTask.type : CONSTANTS.common.SIMPLE_TASK_TYPE
 		singleTask.status = singleTask.status ? singleTask.status : CONSTANTS.common.NOT_STARTED_STATUS
