@@ -5,171 +5,183 @@
  * Description : Project Templates helper for DB interactions.
  */
 
-// Dependencies 
+// Dependencies
 
 /**
-    * ProjectTemplates
-    * @class
-*/
+ * ProjectTemplates
+ * @class
+ */
 
 module.exports = class ProjectTemplates {
+	/**
+	 * Project templates documents.
+	 * @method
+	 * @name getAggregate
+	 * @param {Object} [aggregateData] - aggregate Data.
+	 * @returns {Array} - Project templates data.
+	 */
 
-    /**
-   * Project templates documents.
-   * @method
-   * @name getAggregate
-   * @param {Object} [aggregateData] - aggregate Data.
-   * @returns {Array} - Project templates data.
-   */
+	static getAggregate(aggregateData) {
+		return new Promise(async (resolve, reject) => {
+			try {
+				let projectTemplatesData = await database.models.projectTemplates.aggregate(aggregateData)
+				return resolve(projectTemplatesData)
+			} catch (error) {
+				return reject(error)
+			}
+		})
+	}
 
-    static getAggregate(aggregateData) {
-        return new Promise(async (resolve, reject) => {
-        
-            try {
-              
-              let projectTemplatesData = await database.models.projectTemplates.aggregate(aggregateData);
-              return resolve(projectTemplatesData);
+	/**
+	 * Lists of template.
+	 * @method
+	 * @name templateDocument
+	 * @param {Array} [filterData = "all"] - template filter query.
+	 * @param {Array} [fieldsArray = "all"] - projected fields.
+	 * @param {Array} [skipFields = "none"] - field not to include
+	 * @returns {Array} Lists of template.
+	 */
 
-            } catch (error) {
-              return reject(error);
-            }
-        });
-    }
+	static templateDocument(filterData = 'all', fieldsArray = 'all', skipFields = 'none') {
+		return new Promise(async (resolve, reject) => {
+			try {
+				let queryObject = filterData != 'all' ? filterData : {}
+				let projection = {}
+				if (fieldsArray != 'all') {
+					fieldsArray.forEach((field) => {
+						projection[field] = 1
+					})
+				}
 
-    /**
-     * Lists of template.
-     * @method
-     * @name templateDocument
-     * @param {Array} [filterData = "all"] - template filter query.
-     * @param {Array} [fieldsArray = "all"] - projected fields.
-     * @param {Array} [skipFields = "none"] - field not to include
-     * @returns {Array} Lists of template. 
-     */
-    
-    static templateDocument(
-        filterData = "all", 
-        fieldsArray = "all",
-        skipFields = "none"
-    ) {
-        return new Promise(async (resolve, reject) => {
-            try {
-                let queryObject = (filterData != "all") ? filterData : {};
-                let projection = {}
-                if (fieldsArray != "all") {
-                    fieldsArray.forEach(field => {
-                        projection[field] = 1;
-                   });
-               }
-               
-               if( skipFields !== "none" ) {
-                   skipFields.forEach(field=>{
-                       projection[field] = 0;
-                   });
-               }
-               let templates = 
-               await database.models.projectTemplates.find(
-                   queryObject, 
-                   projection
-               ).lean();
-           
-               return resolve(templates);
-           
-           } catch (error) {
-               return reject(error);
-           }
-       });
-   }
+				if (skipFields !== 'none') {
+					skipFields.forEach((field) => {
+						projection[field] = 0
+					})
+				}
+				let templates = await database.models.projectTemplates.find(queryObject, projection).lean()
 
-   /**
-   * Create project templates documents.
-   * @method
-   * @name createTemplate
-   * @param {Object} [templateData] - template Data.
-   * @returns {Array} - Project templates data.
-   */
+				return resolve(templates)
+			} catch (error) {
+				return reject(error)
+			}
+		})
+	}
 
-    static createTemplate(templateData) {
-        return new Promise(async (resolve, reject) => {
-        
-            try {
-              
-              let projectTemplate = await database.models.projectTemplates.create(templateData);
-              return resolve(projectTemplate);
+	/**
+	 * Create project templates documents.
+	 * @method
+	 * @name createTemplate
+	 * @param {Object} [templateData] - template Data.
+	 * @returns {Array} - Project templates data.
+	 */
 
-            } catch (error) {
-              return reject(error);
-            }
-        });
-    }
+	static createTemplate(templateData) {
+		return new Promise(async (resolve, reject) => {
+			try {
+				let projectTemplate = await database.models.projectTemplates.create(templateData)
+				return resolve(projectTemplate)
+			} catch (error) {
+				return reject(error)
+			}
+		})
+	}
 
-    /**
-   * Update project templates documents.
-   * @method
-   * @name findOneAndUpdate
-   * @param {Object} [filterQuery] - filtered Query.
-   * @param {Object} [updateData] - update data.
-   * @returns {Array} - Project templates data.
-   */
+	/**
+	 * Update project templates documents.
+	 * @method
+	 * @name findOneAndUpdate
+	 * @param {Object} [filterQuery] - filtered Query.
+	 * @param {Object} [updateData] - update data.
+	 * @returns {Array} - Project templates data.
+	 */
 
-    static findOneAndUpdate(findQuery,UpdateObject, returnData = {new:false}) {
-        return new Promise(async (resolve, reject) => {
-        
-            try {
-              
-              let projectTemplate = await database.models.projectTemplates.findOneAndUpdate(findQuery,UpdateObject, returnData).lean()
-              return resolve(projectTemplate);
+	static findOneAndUpdate(findQuery, UpdateObject, returnData = { new: false }) {
+		return new Promise(async (resolve, reject) => {
+			try {
+				let projectTemplate = await database.models.projectTemplates
+					.findOneAndUpdate(findQuery, UpdateObject, returnData)
+					.lean()
+				return resolve(projectTemplate)
+			} catch (error) {
+				return reject(error)
+			}
+		})
+	}
 
-            } catch (error) {
-              return reject(error);
-            }
-        });
-    }
+	/**
+	 * Update projectTemplates document.
+	 * @method
+	 * @name updateProjectTemplateDocument
+	 * @param {Object} query - query to find document
+	 * @param {Object} updateObject - fields to update
+	 * @returns {String} - message.
+	 */
 
-     /**
-    * Update projectTemplates document.
-    * @method
-    * @name updateProjectTemplateDocument
-    * @param {Object} query - query to find document
-    * @param {Object} updateObject - fields to update
-    * @returns {String} - message.
-    */
+	static updateProjectTemplateDocument(query = {}, updateObject = {}) {
+		return new Promise(async (resolve, reject) => {
+			try {
+				if (Object.keys(query).length == 0) {
+					throw new Error(CONSTANTS.apiResponses.UPDATE_QUERY_REQUIRED)
+				}
 
-   static updateProjectTemplateDocument(query= {}, updateObject= {}) {
-    return new Promise(async (resolve, reject) => {
-        try {
+				if (Object.keys(updateObject).length == 0) {
+					throw new Error(CONSTANTS.apiResponses.UPDATE_OBJECT_REQUIRED)
+				}
 
-            if (Object.keys(query).length == 0) {
-                throw new Error(CONSTANTS.apiResponses.UPDATE_QUERY_REQUIRED)
-            }
+				let updateResponse = await database.models.projectTemplates.updateOne(query, updateObject)
 
-            if (Object.keys(updateObject).length == 0) {
-                throw new Error (CONSTANTS.apiResponses.UPDATE_OBJECT_REQUIRED)
-            }
+				if (updateResponse.nModified == 0) {
+					throw new Error(CONSTANTS.apiResponses.FAILED_TO_UPDATE)
+				}
 
-            let updateResponse = await database.models.projectTemplates.updateOne
-            (
-                query,
-                updateObject
-            )
-            
-            if (updateResponse.nModified == 0) {
-                throw new Error(CONSTANTS.apiResponses.FAILED_TO_UPDATE)
-            }
+				return resolve({
+					success: true,
+					message: CONSTANTS.apiResponses.UPDATED_DOCUMENT_SUCCESSFULLY,
+					data: true,
+				})
+			} catch (error) {
+				return resolve({
+					success: false,
+					message: error.message,
+					data: false,
+				})
+			}
+		})
+	}
 
-            return resolve({
-                success: true,
-                message: CONSTANTS.apiResponses.UPDATED_DOCUMENT_SUCCESSFULLY,
-                data: true
-            });
+	/**
+	 * Get projects by solution ID.
+	 * @method
+	 * @name getProjectsBySolutionId
+	 * @param {String} solutionId - Solution ID
+	 * @returns {Object} - Object containing success status and projects data
+	 */
+	static getProjectsBySolutionId(solutionId) {
+		return new Promise(async (resolve, reject) => {
+			try {
+				// Find all projects that have this solution ID
+				const projects = await database.models.projects.find({ solutionId: solutionId }).lean()
 
-        } catch (error) {
-            return resolve({
-                success: false,
-                message: error.message,
-                data: false
-            });
-        }
-    });
-   }
+				if (!projects || projects.length === 0) {
+					return resolve({
+						success: false,
+						message: 'No projects found for this solution',
+						data: [],
+					})
+				}
 
-};
+				return resolve({
+					success: true,
+					message: 'Projects fetched successfully',
+					data: projects,
+				})
+			} catch (error) {
+				return reject({
+					success: false,
+					message: error.message || 'Failed to fetch projects',
+					error: error,
+				})
+			}
+		})
+	}
+}

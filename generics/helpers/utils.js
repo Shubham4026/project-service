@@ -178,7 +178,12 @@ function valueParser(dataToBeParsed) {
 	let parsedData = {}
 
 	Object.keys(dataToBeParsed).forEach((eachDataToBeParsed) => {
-		parsedData[eachDataToBeParsed] = dataToBeParsed[eachDataToBeParsed].trim()
+		const value = dataToBeParsed[eachDataToBeParsed]
+		if (typeof value === 'string') {
+			parsedData[eachDataToBeParsed] = value.trim()
+		} else {
+			parsedData[eachDataToBeParsed] = value
+		}
 	})
 
 	if (parsedData._arrayFields && parsedData._arrayFields.split(',').length > 0) {
@@ -692,6 +697,120 @@ function arrayOfObjectToArrayOfObjectId(ids) {
 	return ids.map((obj) => obj._id)
 }
 
+/**
+ * Validates task dates against current date
+ * @function
+ * @name validateTaskDates
+ * @param {Object} task - Task object containing startDate and endDate
+ * @returns {Object} - Validation result with status and message
+ */
+function validateTaskDates(task) {
+	const currentDate = new Date()
+	currentDate.setHours(0, 0, 0, 0)
+
+	const startDate = new Date(task.startDate.split('-').reverse().join('-'))
+	const endDate = new Date(task.endDate.split('-').reverse().join('-'))
+	startDate.setHours(0, 0, 0, 0)
+	endDate.setHours(0, 0, 0, 0)
+
+	if (startDate < currentDate) {
+		return {
+			isValid: false,
+			message: `Task "${task.name}" start date cannot be in the past`,
+		}
+	}
+
+	if (endDate < startDate) {
+		return {
+			isValid: false,
+			message: `Task "${task.name}" end date cannot be before start date`,
+		}
+	}
+
+	return { isValid: true }
+}
+
+/**
+ * Validates child task dates against parent task dates
+ * @function
+ * @name validateChildTaskDates
+ * @param {Object} childTask - Child task object
+ * @param {Object} parentTask - Parent task object
+ * @returns {Object} - Validation result with status and message
+ */
+function validateChildTaskDates(childTask, parentTask) {
+	const parentStartDate = new Date(parentTask.startDate.split('-').reverse().join('-'))
+	const parentEndDate = new Date(parentTask.endDate.split('-').reverse().join('-'))
+	parentStartDate.setHours(0, 0, 0, 0)
+	parentEndDate.setHours(0, 0, 0, 0)
+
+	const childStartDate = new Date(childTask.startDate.split('-').reverse().join('-'))
+	const childEndDate = new Date(childTask.endDate.split('-').reverse().join('-'))
+	childStartDate.setHours(0, 0, 0, 0)
+	childEndDate.setHours(0, 0, 0, 0)
+
+	if (childStartDate < parentStartDate) {
+		return {
+			isValid: false,
+			message: `Child task "${childTask.name}" start date cannot be before parent task start date`,
+		}
+	}
+
+	if (childEndDate > parentEndDate) {
+		return {
+			isValid: false,
+			message: `Child task "${childTask.name}" end date cannot be after parent task end date`,
+		}
+	}
+
+	return { isValid: true }
+}
+
+/**
+ * Validates all tasks dates including parent-child relationships
+ * @function
+ * @name validateAllTaskDates
+ * @param {Array} tasks - Array of task objects
+ * @returns {Object} - Validation result with status and message
+ */
+function validateAllTaskDates(tasks) {
+	// First pass: Validate all dates and build parent-child map
+	const parentChildMap = new Map()
+	for (const task of tasks) {
+		const validation = validateTaskDates(task)
+		if (!validation.isValid) {
+			return validation
+		}
+
+		if (task.parentTaskId) {
+			if (!parentChildMap.has(task.parentTaskId)) {
+				parentChildMap.set(task.parentTaskId, [])
+			}
+			parentChildMap.get(task.parentTaskId).push(task)
+		}
+	}
+
+	// Second pass: Validate child task dates against parent dates
+	for (const [parentId, childTasks] of parentChildMap.entries()) {
+		const parentTask = tasks.find((t) => t.externalId === parentId)
+		if (!parentTask) {
+			return {
+				isValid: false,
+				message: `Parent task with ID ${parentId} not found`,
+			}
+		}
+
+		for (const childTask of childTasks) {
+			const validation = validateChildTaskDates(childTask, parentTask)
+			if (!validation.isValid) {
+				return validation
+			}
+		}
+	}
+
+	return { isValid: true }
+}
+
 module.exports = {
 	camelCaseToTitleCase: camelCaseToTitleCase,
 	lowerCase: lowerCase,
@@ -725,4 +844,7 @@ module.exports = {
 	generateChart: generateChart,
 	handleSpecialCharsForCertificate: handleSpecialCharsForCertificate,
 	arrayOfObjectToArrayOfObjectId: arrayOfObjectToArrayOfObjectId,
+	validateTaskDates: validateTaskDates,
+	validateChildTaskDates: validateChildTaskDates,
+	validateAllTaskDates: validateAllTaskDates,
 }
