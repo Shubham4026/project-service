@@ -949,6 +949,9 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 					const hasStartedTasks =
 						project.tasks &&
 						project.tasks.some((task) => {
+							// Skip null tasks
+							if (!task) return false
+
 							// Check main task status
 							if (task.status && task.status !== CONSTANTS.common.NOT_STARTED_STATUS) {
 								return true
@@ -957,7 +960,9 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 							if (task.children && Array.isArray(task.children)) {
 								return task.children.some(
 									(childTask) =>
-										childTask.status && childTask.status !== CONSTANTS.common.NOT_STARTED_STATUS
+										childTask &&
+										childTask.status &&
+										childTask.status !== CONSTANTS.common.NOT_STARTED_STATUS
 								)
 							}
 							return false
@@ -1013,7 +1018,7 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 					if (projectTemplate) {
 						// Delete all tasks associated with this template
 						if (projectTemplate.tasks && projectTemplate.tasks.length > 0) {
-							const taskIds = projectTemplate.tasks.map((task) => task)
+							const taskIds = projectTemplate.tasks.filter((task) => task !== null).map((task) => task)
 
 							// Delete specific template tasks
 							await database.models.projectTemplateTasks.deleteMany({
