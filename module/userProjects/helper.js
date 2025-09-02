@@ -2743,12 +2743,12 @@ module.exports = class UserProjectsHelper {
 		return new Promise(async (resolve, reject) => {
 			try {
 				// Truncate the title if it exceeds 42 characters
-				if (data.title.length > 42) {
+				if (data.title && data.title.length > 42) {
 					data.title = data.title.substring(0, 42) + '...'
 				}
 
 				// Get downloadable URL for the certificate template
-				if (data.certificate.templateUrl && data.certificate.templateUrl !== '') {
+				if (data.certificate && data.certificate.templateUrl && data.certificate.templateUrl !== '') {
 					let certificateTemplateDownloadableUrl = await cloudServicesHelper.getDownloadableUrl([
 						data.certificate.templateUrl,
 					])
@@ -2769,7 +2769,7 @@ module.exports = class UserProjectsHelper {
 
 				let certificateTemplateDetails = []
 				// Fetch certificate template details if the template ID is provided
-				if (data.certificate.templateId && data.certificate.templateId !== '') {
+				if (data.certificate && data.certificate.templateId && data.certificate.templateId !== '') {
 					certificateTemplateDetails = await certificateTemplateQueries.certificateTemplateDocument(
 						{
 							_id: data.certificate.templateId,
@@ -2787,26 +2787,33 @@ module.exports = class UserProjectsHelper {
 				}
 
 				// Truncate the user-name if it exceeds 38 characters
-				if (data.userProfile.name.length > 38) {
+				if (data.userProfile && data.userProfile.name && data.userProfile.name.length > 38) {
 					data.userProfile.name = data.userProfile.name.substring(0, 38) + '...'
 				}
 
 				// Create the certificate request body
 				let certificateData = {
 					userId: data.userId,
-					name: data.userProfile.name,
-					templateUrl: data.certificate.templateUrl,
-					issuer: certificateTemplateDetails[0].issuer,
-					status: data.certificate.status.toUpperCase(),
-					projectId: data._id.toString(),
-					projectName: UTILS.handleSpecialCharsForCertificate(data.title),
-					programId: certificateTemplateDetails[0].programId.toString(),
+					name: data.userProfile && data.userProfile.name ? data.userProfile.name : '',
+					templateUrl: data.certificate && data.certificate.templateUrl ? data.certificate.templateUrl : '',
+					issuer: certificateTemplateDetails[0] ? certificateTemplateDetails[0].issuer : '',
+					status:
+						data.certificate && data.certificate.status ? data.certificate.status.toUpperCase() : 'PENDING',
+					projectId: data._id ? data._id.toString() : '',
+					projectName: data.title ? UTILS.handleSpecialCharsForCertificate(data.title) : '',
+					programId:
+						certificateTemplateDetails[0] && certificateTemplateDetails[0].programId
+							? certificateTemplateDetails[0].programId.toString()
+							: '',
 					programName:
 						data.programInformation && data.programInformation.name ? data.programInformation.name : '',
-					solutionId: certificateTemplateDetails[0].solutionId.toString(),
+					solutionId:
+						certificateTemplateDetails[0] && certificateTemplateDetails[0].solutionId
+							? certificateTemplateDetails[0].solutionId.toString()
+							: '',
 					solutionName:
 						data.solutionInformation && data.solutionInformation.name ? data.solutionInformation.name : '',
-					completedDate: UTILS.formatISODateToReadableDate(data.completedDate),
+					completedDate: data.completedDate ? UTILS.formatISODateToReadableDate(data.completedDate) : '',
 				}
 
 				// Populate the SVG template if the template URL is provided
@@ -3801,7 +3808,11 @@ function _projectTask(tasks, isImportedFromLibrary = false, parentTaskId = '') {
 			return
 		}
 
-		singleTask.externalId = singleTask.externalId ? singleTask.externalId : singleTask.name.toLowerCase()
+		singleTask.externalId = singleTask.externalId
+			? singleTask.externalId
+			: singleTask.name
+			? singleTask.name.toLowerCase()
+			: 'task_' + singleTask._id
 		singleTask.type = singleTask.type ? singleTask.type : CONSTANTS.common.SIMPLE_TASK_TYPE
 		singleTask.status = singleTask.status ? singleTask.status : CONSTANTS.common.NOT_STARTED_STATUS
 		singleTask.isDeleted = singleTask.isDeleted ? singleTask.isDeleted : false
@@ -3829,7 +3840,9 @@ function _projectTask(tasks, isImportedFromLibrary = false, parentTaskId = '') {
 		if (singleTask.visibleIf && singleTask.visibleIf.length > 0) {
 			if (parentTaskId !== '') {
 				singleTask.visibleIf.forEach((task) => {
-					task._id = parentTaskId
+					if (task) {
+						task._id = parentTaskId
+					}
 				})
 			}
 		}
@@ -4352,6 +4365,9 @@ function _updateUserProfileBasedOnUserRoleInfo(userProfile, userRoleInformation)
 					pointerToRolesInUserInformation++
 				) {
 					const subRole = rolesInUserRoleInformation[pointerToRolesInUserInformation]
+					// Skip if subRole is null or undefined
+					if (!subRole) continue
+
 					// Check if userProfile.profileUserTypes exists and is an array of length > 0
 					if (
 						userProfile.profileUserTypes &&
