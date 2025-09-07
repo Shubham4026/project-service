@@ -983,30 +983,35 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 					deletedProjects.push(projectId)
 					deletedEntities.projects.push(projectId)
 
-					// 2. Get project template to fetch task IDs
+					// 2. Get project template to fetch task IDs and ensure complete deletion
 					const projectTemplate = await database.models.projectTemplates.findOne({ _id: projectTemplateId })
 					if (projectTemplate) {
-						// Delete all tasks associated with this template
-						if (projectTemplate.tasks && projectTemplate.tasks.length > 0) {
-							const taskIds = projectTemplate.tasks.filter((task) => task !== null).map((task) => task)
+						// Get ALL tasks associated with this template - including parent and child tasks
+						const allTemplateTasks = await database.models.projectTemplateTasks
+							.find({
+								projectTemplateId: projectTemplateId,
+							})
+							.lean()
 
-							// Delete specific template tasks
+						if (allTemplateTasks && allTemplateTasks.length > 0) {
+							const allTaskIds = allTemplateTasks.map((task) => task._id)
+
+							// Delete ALL template tasks for this template in one comprehensive operation
 							await database.models.projectTemplateTasks.deleteMany({
-								_id: { $in: taskIds },
+								projectTemplateId: projectTemplateId,
 							})
 
-							// Delete tasks marked as deleted
+							// Also delete by specific IDs as backup (in case projectTemplateId reference is missing)
 							await database.models.projectTemplateTasks.deleteMany({
-								_id: { $in: taskIds },
-								isDeleted: true,
+								_id: { $in: allTaskIds },
 							})
 
-							// Delete any remaining tasks for this template
+							// Delete any tasks that might have parentId relationships to these tasks
 							await database.models.projectTemplateTasks.deleteMany({
-								projectTemplateId,
+								parentId: { $in: allTaskIds },
 							})
 
-							deletedEntities.entities.push(...taskIds)
+							deletedEntities.entities.push(...allTaskIds)
 						}
 
 						// Clear the tasks array in the template
@@ -1027,6 +1032,12 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 
 					// Delete all related templates and their references
 					for (const template of relatedTemplates) {
+						// First, delete all tasks associated with this related template
+						await database.models.projectTemplateTasks.deleteMany({
+							projectTemplateId: template._id,
+						})
+
+						// Delete the template documents
 						await database.models.projectTemplates.deleteOne({ _id: template._id })
 						await database.models.projectTemplates.deleteMany({ parentTemplateId: template._id })
 						await database.models.projectTemplates.deleteMany({ referenceTemplateId: template._id })
