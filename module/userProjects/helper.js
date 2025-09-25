@@ -1183,13 +1183,11 @@ module.exports = class UserProjectsHelper {
 					)
 
 					//based on above api will check for projects wether its is private project or public project
-					// Note: Only check userId and solutionId since that's what the unique index enforces
-					// Adding isAPrivateProgram filter can cause duplicate creation when targeting changes
 					const projectDetails = await projectQueries.projectDocument(
 						{
 							solutionId: solutionId,
 							userId: userId,
-							// Removed isAPrivateProgram filter to prevent duplicate key errors
+							isAPrivateProgram: targetedSolutionId.result.isATargetedSolution ? false : true,
 						},
 						['_id']
 					)
