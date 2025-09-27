@@ -1051,13 +1051,10 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 						)
 					}
 
-					// 3. Delete project template and any related templates
+					// 3. Delete project template - ONLY delete the specific template, not all templates with same title/externalId
+					// This was causing templates to be deleted incorrectly when they were shared across solutions
 					const relatedTemplates = await database.models.projectTemplates.find({
-						$or: [
-							{ _id: projectTemplateId },
-							{ externalId: projectTemplate?.externalId },
-							{ title: projectTemplate?.title },
-						],
+						_id: projectTemplateId, // Only delete the specific template, not by title or externalId
 					})
 
 					// Delete all related templates and their references
