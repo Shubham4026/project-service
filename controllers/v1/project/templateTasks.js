@@ -1061,7 +1061,6 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 					}
 				}
 
-				// 4. Delete solution and its associated data
 				if (solution) {
 					// Delete solution files
 					if (solution.files && solution.files.length > 0) {
@@ -1077,11 +1076,7 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 						}
 					}
 
-					// Delete solution references
-					await database.models.solutions.deleteMany({ parentSolutionId: solutionId })
-					await database.models.solutions.deleteMany({ referenceSolutionId: solutionId })
-
-					// Delete solution document
+					// Delete ONLY the specific solution document
 					await database.models.solutions.deleteOne({ _id: solutionId })
 
 					deletedSolutions.add(solutionId)
@@ -1104,11 +1099,7 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 						}
 					}
 
-					// Delete program references
-					await database.models.programs.deleteMany({ parentProgramId: programId })
-					await database.models.programs.deleteMany({ referenceProgramId: programId })
-
-					// Delete program document
+					// Delete ONLY the specific program document
 					await database.models.programs.deleteOne({ _id: programId })
 
 					deletedPrograms.add(programId)
