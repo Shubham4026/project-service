@@ -1081,8 +1081,6 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 
 								// delete the parent template and its children/references
 								await database.models.projectTemplates.deleteOne({ _id: parent._id })
-								await database.models.projectTemplates.deleteMany({ parentTemplateId: parent._id })
-								await database.models.projectTemplates.deleteMany({ referenceTemplateId: parent._id })
 
 								deletedTemplates.add(parent._id)
 								deletedEntities.templates.push(parent._id)
