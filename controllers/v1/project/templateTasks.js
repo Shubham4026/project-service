@@ -1021,13 +1021,10 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 						)
 					}
 
-					// 3. Delete project template and any related templates
+					// 3. Delete project template - ONLY delete the specific template, not all templates with same title/externalId
+					// This was causing templates to be deleted incorrectly when they were shared across solutions
 					const relatedTemplates = await database.models.projectTemplates.find({
-						$or: [
-							{ _id: projectTemplateId },
-							{ externalId: projectTemplate?.externalId },
-							{ title: projectTemplate?.title },
-						],
+						_id: projectTemplateId, // Only delete the specific template, not by title or externalId
 					})
 
 					// Delete all related templates and their references
@@ -1041,12 +1038,29 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 						await database.models.projectTemplates.deleteOne({ _id: template._id })
 						await database.models.projectTemplates.deleteMany({ parentTemplateId: template._id })
 						await database.models.projectTemplates.deleteMany({ referenceTemplateId: template._id })
+						if (template.parentTemplateId) {
+							const parent = await database.models.projectTemplates.findOne({
+								_id: template.parentTemplateId,
+							})
+
+							if (parent) {
+								// delete any tasks under the parent
+								await database.models.projectTemplateTasks.deleteMany({
+									projectTemplateId: parent._id,
+								})
+
+								// delete the parent template and its children/references
+								await database.models.projectTemplates.deleteOne({ _id: parent._id })
+
+								deletedTemplates.add(parent._id)
+								deletedEntities.templates.push(parent._id)
+							}
+						}
 						deletedTemplates.add(template._id)
 						deletedEntities.templates.push(template._id)
 					}
 				}
 
-				// 4. Delete solution and its associated data
 				if (solution) {
 					// Delete solution files
 					if (solution.files && solution.files.length > 0) {
@@ -1062,11 +1076,7 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 						}
 					}
 
-					// Delete solution references
-					await database.models.solutions.deleteMany({ parentSolutionId: solutionId })
-					await database.models.solutions.deleteMany({ referenceSolutionId: solutionId })
-
-					// Delete solution document
+					// Delete ONLY the specific solution document
 					await database.models.solutions.deleteOne({ _id: solutionId })
 
 					deletedSolutions.add(solutionId)
@@ -1089,11 +1099,7 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 						}
 					}
 
-					// Delete program references
-					await database.models.programs.deleteMany({ parentProgramId: programId })
-					await database.models.programs.deleteMany({ referenceProgramId: programId })
-
-					// Delete program document
+					// Delete ONLY the specific program document
 					await database.models.programs.deleteOne({ _id: programId })
 
 					deletedPrograms.add(programId)
