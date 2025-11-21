@@ -25,7 +25,7 @@ module.exports = class LearningResourcesHelper {
 				console.log(parsedCsvData)
 				let learningResources = []
 
-				for (let resourceCount = 1; resourceCount < 20; resourceCount++) {
+				for (let resourceCount = 1; resourceCount < 50; resourceCount++) {
 					let resource = 'learningResources' + resourceCount + '-'
 					let resourceName = resource + 'name'
 					let resourceLink = resource + 'link'
