@@ -12,6 +12,7 @@ const utils = require('@helpers/utils')
 const projectQueries = require(DB_QUERY_BASE_PATH + '/projects')
 const projectTemplateQueries = require(DB_QUERY_BASE_PATH + '/projectTemplates')
 const projectTemplateTaskQueries = require(DB_QUERY_BASE_PATH + '/projectTemplateTask')
+const kafkaProducersHelper = require(GENERICS_FILES_PATH + '/kafka/producers')
 
 /**
  * ProjectTemplateTasks
@@ -407,6 +408,23 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 					})
 				}
 
+				// Push updated projects to Kafka
+				for (const project of projects) {
+					try {
+						const updatedProject = await projectQueries.projectDocument({ _id: project._id })
+						if (updatedProject && updatedProject.length > 0) {
+							await kafkaProducersHelper.pushProjectTaskUpdateToKafka(updatedProject[0])
+							console.log(
+								'<---------Project task update sent to Kafka for project:----------> ',
+								project._id
+							)
+						}
+					} catch (kafkaError) {
+						console.error('Error pushing project to Kafka:', kafkaError)
+						// Continue even if Kafka push fails
+					}
+				}
+
 				// 7. Return results
 				return resolve({
 					status: HTTP_STATUS_CODE.ok.status,
@@ -538,15 +556,30 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 					}
 
 					if (updatedTaskIds.length > 0) {
-						await projectQueries.findOneAndUpdate(
+						const updatedProject = await projectQueries.findOneAndUpdate(
 							{ _id: projectId },
-							{ $set: { tasks: projectTasks, updatedAt: new Date() } }
+							{ $set: { tasks: projectTasks, updatedAt: new Date() } },
+							{ new: true }
 						)
 						updatedProjects.push({
 							projectId: projectId,
 							projectTemplateId: projectTemplateId,
 							updatedTaskIds: updatedTaskIds,
 						})
+
+						// Push updated project to Kafka
+						try {
+							if (updatedProject && updatedProject._id) {
+								await kafkaProducersHelper.pushProjectTaskUpdateToKafka(updatedProject)
+								console.log(
+									'<---------Project task update sent to Kafka for project:----------> ',
+									projectId
+								)
+							}
+						} catch (kafkaError) {
+							console.error('Error pushing project to Kafka:', kafkaError)
+							// Continue even if Kafka push fails
+						}
 					}
 				}
 
@@ -812,7 +845,7 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 							? project.taskSequence.filter((id) => id !== externalId)
 							: []
 
-						await projectQueries.findOneAndUpdate(
+						const updatedProject = await projectQueries.findOneAndUpdate(
 							{ _id: projectId },
 							{
 								$set: {
@@ -820,8 +853,23 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 									taskSequence: updatedTaskSequence,
 									updatedAt: new Date(),
 								},
-							}
+							},
+							{ new: true }
 						)
+
+						// Push updated project to Kafka
+						try {
+							if (updatedProject && updatedProject._id) {
+								await kafkaProducersHelper.pushProjectTaskUpdateToKafka(updatedProject)
+								console.log(
+									'<---------Project task deletion sent to Kafka for project:----------> ',
+									projectId
+								)
+							}
+						} catch (kafkaError) {
+							console.error('Error pushing project to Kafka:', kafkaError)
+							// Continue even if Kafka push fails
+						}
 					} else {
 						// For child tasks, recursively remove and update parent references
 						const removeTaskAndUpdateParent = (tasks, targetId) => {
@@ -855,7 +903,7 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 							// Clean up any null values from tasks array
 							const cleanedTasks = projectTasks.filter((task) => task !== null)
 
-							await projectQueries.findOneAndUpdate(
+							const updatedProject = await projectQueries.findOneAndUpdate(
 								{ _id: projectId },
 								{
 									$set: {
@@ -863,8 +911,23 @@ module.exports = class ProjectTemplateTasks extends Abstract {
 										taskSequence: updatedTaskSequence,
 										updatedAt: new Date(),
 									},
-								}
+								},
+								{ new: true }
 							)
+
+							// Push updated project to Kafka
+							try {
+								if (updatedProject && updatedProject._id) {
+									await kafkaProducersHelper.pushProjectTaskUpdateToKafka(updatedProject)
+									console.log(
+										'<---------Project task deletion sent to Kafka for project:----------> ',
+										projectId
+									)
+								}
+							} catch (kafkaError) {
+								console.error('Error pushing project to Kafka:', kafkaError)
+								// Continue even if Kafka push fails
+							}
 						}
 					}
 
