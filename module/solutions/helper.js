@@ -2742,13 +2742,14 @@ module.exports = class SolutionsHelper {
 				}
 
 				// fetch projects created by the user
+				// When currentScopeOnly is true, fetch ALL user projects to ensure proper matching
 				let userCreatedProjects = await this.assignedUserSolutions(
 					solutionType,
 					userId,
 					search,
 					filter,
-					'',
-					'',
+					currentScopeOnly ? 1 : '', // pageNo
+					currentScopeOnly ? 10000 : '', // pageSize - fetch all when currentScopeOnly
 					requestedData
 				)
 				if (!userCreatedProjects.success) {
