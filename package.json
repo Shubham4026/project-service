@@ -9,10 +9,10 @@
 	"scripts": {
 		"test": "",
 		"start": "NODE_ENV=development nodemon app.js",
-		"prod": "NODE_ENV=production node app.js",
-		"stage": "NODE_ENV=stage node app.js",
-		"qa": "NODE_ENV=qa node app.js",
-		"integration": "node app.js",
+		"prod": "NODE_ENV=production node --max-old-space-size=4096 --expose-gc app.js",
+		"stage": "NODE_ENV=stage node --max-old-space-size=4096 --expose-gc app.js",
+		"qa": "NODE_ENV=qa node --max-old-space-size=4096 --expose-gc app.js",
+		"integration": "node --max-old-space-size=4096 app.js",
 		"dev": "nodemon app.js",
 		"prepare": "husky install",
 		"coverage": " nyc --reporter=lcov mocha --timeout 10000 test --exit"

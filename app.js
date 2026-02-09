@@ -53,13 +53,15 @@ app.get(process.env.API_DOC_URL, function (req, res) {
 })
 
 app.all('*', (req, res, next) => {
-	console.log({ 'Debugging ML Projects Service': true })
-	console.log('<------------Request log starts here------------------>')
-	console.log('Request URL: ', req.url)
-	console.log('Request Headers: ', JSON.stringify(req.headers))
-	console.log('Request Body: ', JSON.stringify(req.body))
-	// console.log("Request Files: ", req.files);
-	console.log('<---------------Request log ends here------------------>')
+	// Only log in development to prevent memory issues with large request bodies
+	// if (process.env.NODE_ENV === 'development' || process.env.APPLICATION_ENV === 'development') {
+	// 	console.log({ 'Debugging ML Projects Service': true })
+	// 	console.log('<------------Request log starts here------------------>')
+	// 	console.log('Request URL: ', req.url)
+	// 	console.log('Request Headers: ', JSON.stringify(req.headers))
+	// 	console.log('Request Body Size: ', JSON.stringify(req.body).length, 'bytes')
+	// 	console.log('<---------------Request log ends here------------------>')
+	// }
 	next()
 })
 
